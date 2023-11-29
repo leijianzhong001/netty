@@ -720,6 +720,7 @@
     <module>transport-blockhound-tests</module>
     <module>microbench</module>
     <module>bom</module>
+    <module>netty-comment</module>
   </modules>
 
   <dependencyManagement>

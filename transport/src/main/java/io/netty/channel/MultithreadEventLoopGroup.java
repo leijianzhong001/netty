@@ -37,6 +37,9 @@ public abstract class MultithreadEventLoopGroup extends MultithreadEventExecutor
     private static final int DEFAULT_EVENT_LOOP_THREADS;
 
     static {
+        // 而`DEFAULT_EVENT_LOOP_THREADS`的取值逻辑如下：
+        //      - 首先取系统环境变量`io.netty.eventLoopThreads`的值，如果没有，则取 `CPU * 2` 为要创建的线程数量。
+        //      - 如果最终取到的线程数量小于1，  mn则创建1个线程。这里主要是为了应付`io.netty.eventLoopThreads`中指定值错误情况。
         DEFAULT_EVENT_LOOP_THREADS = Math.max(1, SystemPropertyUtil.getInt(
                 "io.netty.eventLoopThreads", NettyRuntime.availableProcessors() * 2));
 
