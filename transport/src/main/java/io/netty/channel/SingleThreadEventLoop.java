@@ -80,12 +80,19 @@ public abstract class SingleThreadEventLoop extends SingleThreadEventExecutor im
 
     @Override
     public ChannelFuture register(Channel channel) {
+        /*
+         * 1、在该方法中首先构建了一个`DefaultChannelPromise` 对象，其内部持有了当前`ServerSocketChannel`和当前`NioEventLoop`
+         * 2、`Promise`是可写的`Future` ，Future自身并没有写相关的操作， Netty通过Promise对Future进行扩展，用于设置io操作的结果
+         * 3、接着调用了`register`方法，在该方法中，调用了当前`ServerSocketChannel` 所持有的`unsafe`对象的register方法,他是一个 `NioMessageUnsafe` 类型。
+         */
         return register(new DefaultChannelPromise(channel, this));
     }
 
     @Override
     public ChannelFuture register(final ChannelPromise promise) {
         ObjectUtil.checkNotNull(promise, "promise");
+        // 调用了当前`ServerSocketChannel` 所持有的`unsafe`对象的register方法,他是一个 `NioMessageUnsafe` 类型。
+        // `Unsafe`接口实际上是`Channel`的辅助接口，它不应该被用户代码直接调用，实际的`IO`读写操作都是由`Unsafe`接口负责完成的。
         promise.channel().unsafe().register(this, promise);
         return promise;
     }

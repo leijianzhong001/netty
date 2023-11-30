@@ -77,10 +77,13 @@ public abstract class AbstractNioChannel extends AbstractChannel {
      * @param readInterestOp    the ops to set to receive data from the {@link SelectableChannel}
      */
     protected AbstractNioChannel(Channel parent, SelectableChannel ch, int readInterestOp) {
+        // 1、特别注意这个方法。会设置channelId和pipeline
         super(parent);
         this.ch = ch;
+        // 2、设置感兴趣的事件，如 SelectionKey.OP_ACCEPT
         this.readInterestOp = readInterestOp;
         try {
+            // 3、设置当前channel非阻塞,这意味着例如 ServerSocketChannel.accept() 方法是非阻塞的
             ch.configureBlocking(false);
         } catch (IOException e) {
             try {
@@ -377,6 +380,8 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         boolean selected = false;
         for (;;) {
             try {
+                // 这里面就是`java Nio`中原生的注册通道到选择器上的操作了
+                // **注意这里注册的时候注册的感兴趣的事件居然是`0`**， 正常来说，将通道创建完成之后，绑定到选择器上时感兴趣的事件应该是`ACCEPT`事件，即`16`。所以这里的这个值在真正接收请求的时候会被更改。
                 selectionKey = javaChannel().register(eventLoop().unwrappedSelector(), 0, this);
                 return;
             } catch (CancelledKeyException e) {

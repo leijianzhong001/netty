@@ -76,11 +76,14 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
             executor = new ThreadPerTaskExecutor(newDefaultThreadFactory());
         }
 
+        // 创建的线程都放在这个 EventExecutor 数组中。
+        // `NioEventLoop`是 `EventExecutor`的子类，所以`NioEventLoop`可以被放到`EventExecutor`数组中。
         children = new EventExecutor[nThreads];
 
         for (int i = 0; i < nThreads; i ++) {
             boolean success = false;
             try {
+                // 创建新对象的方法是`newChild`,其内部会`new`一个`NioEventLoop`出来。
                 children[i] = newChild(executor, args);
                 success = true;
             } catch (Exception e) {
@@ -89,6 +92,7 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
             } finally {
                 if (!success) {
                     for (int j = 0; j < i; j ++) {
+                        // 一旦创建发生异常，将之前创建的所有`EventLoop`对象关闭
                         children[j].shutdownGracefully();
                     }
 
@@ -96,6 +100,7 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
                         EventExecutor e = children[j];
                         try {
                             while (!e.isTerminated()) {
+                                // NioEventLoop对象其实也是ExecuteService对象，这里等待ExecuteService中的线程对象终结
                                 e.awaitTermination(Integer.MAX_VALUE, TimeUnit.SECONDS);
                             }
                         } catch (InterruptedException interrupted) {
@@ -114,17 +119,21 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
             @Override
             public void operationComplete(Future<Object> future) throws Exception {
                 if (terminatedChildren.incrementAndGet() == children.length) {
+                    // 判断是否所有的NioEventLoop对象是否都已经终结，如果都已经被终结，则设置 terminationFuture 为success
                     terminationFuture.setSuccess(null);
                 }
             }
         };
 
         for (EventExecutor e: children) {
+            // 注册一个监听器来监听是否所有的NioEventLoop对象都已经关闭
             e.terminationFuture().addListener(terminationListener);
         }
 
         Set<EventExecutor> childrenSet = new LinkedHashSet<EventExecutor>(children.length);
         Collections.addAll(childrenSet, children);
+        // 最后，将创建出来的所有`NioEventLoop`放到一个`UnmodifiableSet` 集合中
+        // `readonlyChildren`是当前 `EventLoopGroup` 对象的一个成员变量，保存了当前`EventLoopGroup` 的所有已创建的`EventLoop`对象。
         readonlyChildren = Collections.unmodifiableSet(childrenSet);
     }
 

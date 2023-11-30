@@ -70,8 +70,10 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
      */
     protected AbstractChannel(Channel parent) {
         this.parent = parent;
-        id = newId();
+        // 1、设置channelId
+        id = newId(); // // newId()返回一个至少在当前机器范围内是唯一的id
         unsafe = newUnsafe();
+        // 2、给当前channel指定一个 DefaultChannelPipeline， 其要求传入一个 Channel 类型的参数，以标识是哪个channel的pipeline
         pipeline = newChannelPipeline();
     }
 
@@ -476,10 +478,12 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
             AbstractChannel.this.eventLoop = eventLoop;
 
+            // 1、首选判断当前所在的线程是否是`ServerSocketChannel`对应的`NioEventLoop`线程，如果是同一个线程，则不存在多线程并发操作问题，直接注册
             if (eventLoop.inEventLoop()) {
                 register0(promise);
             } else {
                 try {
+                    // 2、而如果是由用户线程或其他线程发起的注册操作，则将注册操作放入到`NioEvenLoop`的任务队列中串行执行。
                     eventLoop.execute(new Runnable() {
                         @Override
                         public void run() {
@@ -497,28 +501,49 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             }
         }
 
+        /**
+         * 这里面主要是注册通道并激活一些对应的事件。
+         *     - 首先判断是否设置不可取消成功，并且通道是否处于打开状态，如果通道处于关闭状态，会注册失败
+         *     - 接着注册通道到选择器上
+         *     - 在注册成功之前，**触发通道的handler添加事件，其对应的handler方法是handlerAdded。**
+         *     - 注册成功以后，触发通道的`Registered`事件，该事件对应`ChannelInboundHandler`的`channelRegistered` 方法。
+         *     - 判断通道如果处于激活状态，还会触发通道的`Active`事件，该事件对应`channelActive` 方法。
+         *       - 注意此时`pipeline`中并没有用于添加的`handler `,而是`Netty`预置的`handler`
+         * @param promise
+         */
         private void register0(ChannelPromise promise) {
             try {
                 // check if the channel is still open as it could be closed in the mean time when the register
                 // call was outside of the eventLoop
+                // 1、首先判断是否设置不可取消成功，并且通道是否处于打开状态，如果通道处于关闭状态，会注册失败
                 if (!promise.setUncancellable() || !ensureOpen(promise)) {
                     return;
                 }
                 boolean firstRegistration = neverRegistered;
+                // 2、接着注册通道到选择器上。这是个同步操作，不是异步的
                 doRegister();
                 neverRegistered = false;
                 registered = true;
 
                 // Ensure we call handlerAdded(...) before we actually notify the promise. This is needed as the
                 // user may already fire events through the pipeline in the ChannelFutureListener.
+                /*
+                 * 3、在通知promise注册成功之前， 调用pipeline.invokeHandlerAddedIfNeeded方法触发当前通道上所有的handler的handlerAdded事件，其对应的handler方法是 handlerAdded。
+                 *      3.1、注意，此时NioServerSocketChannel的pipeline中，有前面在ServerBootstrap.init方法中添加的一个 ChannelInitializer 对象。
+                 *      3.2、ChannelInitializer该对象也是一个handler，在其 handlerAdded 方法中，会调用ChannelInitializer的 initChannel 方法，实际的执行前面在ServerBootstrap.init方法中添加相关逻辑：
+                 *          3.2.1、将用户在ServerBootStrap程序的handler方法中添加的handler实际的添加到当前NioServerSocketChannel的pipeline中。
+                 *          3.2.2、通过任务队列的方式，为当前 NioServerSocketChannel 的 pipeline 添加一个handler: ServerBootstrapAcceptor
+                 */
                 pipeline.invokeHandlerAddedIfNeeded();
-
+                // 设置注册结果成功
                 safeSetSuccess(promise);
+                // 4、在通知promise注册成功之后，触发通道的`Registered`事件，该事件对应`ChannelInboundHandler`的`channelRegistered` 方法。
                 pipeline.fireChannelRegistered();
                 // Only fire a channelActive if the channel has never been registered. This prevents firing
                 // multiple channel actives if the channel is deregistered and re-registered.
                 if (isActive()) {
                     if (firstRegistration) {
+                        // 5、判断通道如果处于激活状态，还会触发通道的`Active`事件，该事件对应`channelActive` 方法。
                         pipeline.fireChannelActive();
                     } else if (config().isAutoRead()) {
                         // This channel was registered before and autoRead() is set. This means we need to begin read
@@ -559,6 +584,8 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
             boolean wasActive = isActive();
             try {
+                // 1、在`AbstractUnsafe`的bind实现中，调用了一个`doBind` 方法，这个方法是`AbstractUnsafe`的外部类`AbstractChannel`的方法。其外部类并没有实现这个方法，只是提供了一个抽象方法
+                //    该方法的真正实现实在其子类`NioServerSocketChannel`中。在该实现中调用的就是`java nio` 原生的绑定端口的方法了。
                 doBind(localAddress);
             } catch (Throwable t) {
                 safeSetFailure(promise, t);
@@ -566,6 +593,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 return;
             }
 
+            // 2、在进行完端口绑定之后，还会触发`ChannelActive`事件， 对应的`handler`方法是：`channelActive`
             if (!wasActive && isActive()) {
                 invokeLater(new Runnable() {
                     @Override

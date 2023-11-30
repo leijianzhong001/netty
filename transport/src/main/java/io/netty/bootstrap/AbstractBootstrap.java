@@ -106,6 +106,8 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
      * {@link Channel} implementation has no no-args constructor.
      */
     public B channel(Class<? extends C> channelClass) {
+        // 而在`channel`方法的实现中，主要逻辑其实是组装一个`ReflectiveChannelFactory` 到ServerBootstrap自己的`channelFactory`成员变量上。
+        // 而 `ReflectiveChannelFactory` 类的主要作用是使用指定类型的无参构造器创建一个该类型的对象。
         return channelFactory(new ReflectiveChannelFactory<C>(
                 ObjectUtil.checkNotNull(channelClass, "channelClass")
         ));
@@ -264,11 +266,13 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
      * Create a new {@link Channel} and bind it.
      */
     public ChannelFuture bind(SocketAddress localAddress) {
+        // 简单校验一下group不为空，channelFactory不为空
         validate();
         return doBind(ObjectUtil.checkNotNull(localAddress, "localAddress"));
     }
 
     private ChannelFuture doBind(final SocketAddress localAddress) {
+        // 1、该方法的主要作用是创建一个`NioServerSocketChannel`并初始化 TCP 连接的相关参数
         final ChannelFuture regFuture = initAndRegister();
         final Channel channel = regFuture.channel();
         if (regFuture.cause() != null) {
@@ -278,6 +282,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
         if (regFuture.isDone()) {
             // At this point we know that the registration was complete and successful.
             ChannelPromise promise = channel.newPromise();
+            // 2、`dobind0`方法的作用是将当前 `ServerSocketChannel` 绑定到本地套接字上
             doBind0(regFuture, channel, localAddress, promise);
             return promise;
         } else {
@@ -307,7 +312,25 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     final ChannelFuture initAndRegister() {
         Channel channel = null;
         try {
+            /*
+             * 1、`NioServerSocketChannel` 的创建主要通过我们前面看到的工厂类 `ReflectiveChannelFactory` ,他会通过反射的方式，调用执行类型的无参构造器创建一个该类型的对象。
+             *      这里的这个 channelFactory的实际实现就是 ReflectiveChannelFactory
+             *      最终创建出来的channel对象就是我们前面指定的 NioServerSocketChannel
+             * 2、可以看下实际的 `NioServerSocketChannel` 的创建过程：
+             *     2.1、创建并持有了一个`java Nio`原生的`ServerSocketChannel` 对象
+             *     2.2、指定一个默认的`channelId`。调用  `DefaultChannelId.newInstance()`
+             *     2.3、**指定一个默认的`pipeline`。**通过  `new DefaultChannelPipeline(this)`
+             *     2.4、设置`ServerSocketChannel` 感兴趣的事件为`accept`(其实是给其注册的`Selector`用的)
+             *     2.5、设置该`ServerSocketChannel` 为非阻塞模式
+             *     2.6、创建并持有一个 `NioServerSocketChannelConfig` 对象。`DefaultServerSocketChannelConfig`中主要是记录了这里创建的`NioServerSocketChannel`对象和绑定的套接字，用于对外展示一些配置
+             */
             channel = channelFactory.newChannel();
+
+            /*
+             * 3、init的具体实现是在 ServerBootstrap 中。
+             *      3.1、它会将我们前面给定的option和childOption参数装配到创建的 `NioServerSocketChannel` 对象中。 `NioServerSocketChannel` 对象使用 `NioServerSocketChannelConfig` 类型来装载其对应的配置。
+             *      3.2、通过调用`ChannelInitializer`对象的`initChannel`方法，对通道执行Netty内部或用户指定的初始化逻辑，比如添加handler到pipeline中。
+             */
             init(channel);
         } catch (Throwable t) {
             if (channel != null) {
@@ -320,6 +343,10 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
             return new DefaultChannelPromise(new FailedChannel(), GlobalEventExecutor.INSTANCE).setFailure(t);
         }
 
+        /*
+         * 4、`config().group().register(channel)` 的做用是将当前的`NioServerSocketChannel`注册到`BossGroup`中的某个`NioEventLoop`的`Selector`上。
+         *      4.1、这里的register方法的实现是在 MultithreadEventLoopGroup 中。在该实现中调用了`NioEventLoop`的`register` 方法
+         */
         ChannelFuture regFuture = config().group().register(channel);
         if (regFuture.cause() != null) {
             if (channel.isRegistered()) {
@@ -349,10 +376,12 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
 
         // This method is invoked before channelRegistered() is triggered.  Give user handlers a chance to set up
         // the pipeline in its channelRegistered() implementation.
+        // 1、通过提交到任务队列的方式调用`NioServerSocketChannel`对应的`bind`方法。
         channel.eventLoop().execute(new Runnable() {
             @Override
             public void run() {
                 if (regFuture.isSuccess()) {
+                    // NioServerSocketChannel的bind实现
                     channel.bind(localAddress, promise).addListener(ChannelFutureListener.CLOSE_ON_FAILURE);
                 } else {
                     promise.setFailure(regFuture.cause());
@@ -460,6 +489,8 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     private static void setChannelOption(
             Channel channel, ChannelOption<?> option, Object value, InternalLogger logger) {
         try {
+            // channel.config() 返回的就是前面的ServerSocketChannel构造函数中创建的 NioServerSocketChannelConfig 对象。
+            // 这里将选项设置到NioServerSocketChannelConfig中。如果选项是 NioChannelOption 的实现类，则直接设置到原生的ServerSocketChannel对象上。
             if (!channel.config().setOption((ChannelOption<Object>) option, value)) {
                 logger.warn("Unknown channel option '{}' for channel '{}'", option, channel);
             }

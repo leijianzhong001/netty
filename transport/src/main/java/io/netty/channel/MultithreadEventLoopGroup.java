@@ -86,6 +86,9 @@ public abstract class MultithreadEventLoopGroup extends MultithreadEventExecutor
 
     @Override
     public ChannelFuture register(Channel channel) {
+        // next() 方法的作用是获取当前 NioEventLoopGroup 的下一个可用的 NioEventLoop 对象
+        // register方法的具体实现是在其父类 SingleThreadEventLoop 中， 会将当前的NioSocketChannel注册到这个 NioEventLoop 绑定的选择器上。
+        // 从这里也可以看到确实  `NioServerSocketChannel` 只被注册到bossGroup中的一个NioEventLoop上。
         return next().register(channel);
     }
 

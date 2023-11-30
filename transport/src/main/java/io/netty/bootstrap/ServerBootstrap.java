@@ -80,6 +80,7 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
      * {@link Channel}'s.
      */
     public ServerBootstrap group(EventLoopGroup parentGroup, EventLoopGroup childGroup) {
+        // 在`ServerBootstrap`引导类的指定线程组的`group`方法中，会将bossGroup赋给自己的`group`成员变量，将`workerGroup`赋给自己的`childGroup`变量。
         super.group(parentGroup);
         if (this.childGroup != null) {
             throw new IllegalStateException("childGroup set already");
@@ -129,6 +130,7 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
 
     @Override
     void init(Channel channel) {
+        // 1、设置option. 最终会调用到`AbstractBootstrap#setChannelOption` 方法中
         setChannelOptions(channel, newOptionsArray(), logger);
         setAttributes(channel, newAttributesArray());
 
@@ -139,18 +141,34 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
         final Entry<ChannelOption<?>, Object>[] currentChildOptions = newOptionsArray(childOptions);
         final Entry<AttributeKey<?>, Object>[] currentChildAttrs = newAttributesArray(childAttrs);
 
+        /*
+         * 这里的用意很简单，给 NioServerSocketChannel 的pipeline中添加一个简单的 ChannelInitializer, 这个 ChannelInitializer 主要作用是：
+         *      1、将用户在ServerBootstrap.handler方法中添加的handler实际的添加到当前 NioServerSocketChannel 的 pipeline 中
+         *      2、通过任务队列的方式，为当前 NioServerSocketChannel 的 pipeline 添加一个handler: ServerBootstrapAcceptor
+         */
         p.addLast(new ChannelInitializer<Channel>() {
+            /**
+             * 但是注意 ChannelInitializer 中的 initChannel 方法不会在这里被调用，而是在代码位置：AbstractUnsafe.register0
+             * 该方法中，在 NioServerSocketChannel 被注册到选择器上之后，整个注册操作完成之前(即 ChannelPromise 被设置为成功之前)被调用，
+             * 调用的方式是直接通过当前 NioServerSocketChannel 的 pipeline 的 invokeHandlerAddedIfNeeded() 方法，触发 pipeline 中的每个handler的HandlerAdded方法。
+             * 而ChannelInitializer的 `HandlerAdded` 方法的具体实现，就是调用自己的initChannel方法。
+             */
             @Override
             public void initChannel(final Channel ch) {
                 final ChannelPipeline pipeline = ch.pipeline();
+                // 这里返回的这个 handler 就是我们前面在启动程序中通过handler方法设置的 LoggingHandler
                 ChannelHandler handler = config.handler();
                 if (handler != null) {
+                    // 1、将用户在ServerBootstrap.handler方法中添加的handler实际的添加到当前 NioServerSocketChannel 的 pipeline 中
                     pipeline.addLast(handler);
                 }
 
+                // 2、通过任务队列的方式，为当前 NioServerSocketChannel 的 pipeline 添加一个handler: ServerBootstrapAcceptor
                 ch.eventLoop().execute(new Runnable() {
                     @Override
                     public void run() {
+                        // 通过任务队列的方式添加一个叫`ServerBootstrapAcceptor` 的 handler。它是`ServerBootstrap`中的一个内部类，并且也是一个`ChannelInboundHandler`。
+                        // `ServerBootstrapAcceptor`的作用是初始化`NioSocketChannel`并且将`NioSocketChannel`注册到workerGroup的某个EventLoop绑定的选择器上
                         pipeline.addLast(new ServerBootstrapAcceptor(
                                 ch, currentChildGroup, currentChildHandler, currentChildOptions, currentChildAttrs));
                     }
@@ -204,14 +222,18 @@ public class ServerBootstrap extends AbstractBootstrap<ServerBootstrap, ServerCh
         @Override
         @SuppressWarnings("unchecked")
         public void channelRead(ChannelHandlerContext ctx, Object msg) {
+            // 注意这里传递的对象是一个channel. NioServerSocketChannel对应的handle中流转的对象不是Bytebuf，而是通过 NioServerSocketChannel::accept 方法得到的 NioSocketChannel
             final Channel child = (Channel) msg;
 
+            // 1、将用户通过`.childChannel`添加的`handler`添加到`pipeline`中.。注意是`SocketChannel`对应的`pipeline`，而不是`ServerSocketChannel`对应的`pipeline`
             child.pipeline().addLast(childHandler);
 
+            // 2、将用户通过`.childOption` 方式添加的配置设置到`SocketChannel`中，准确的说是给到`NioSocketChannelConfig` 中
             setChannelOptions(child, childOptions, logger);
             setAttributes(child, childAttrs);
 
             try {
+                // 3、 注册`childChannel`到`workerGroup`中某个`EventLoop`对应的 Selector 上。
                 childGroup.register(child).addListener(new ChannelFutureListener() {
                     @Override
                     public void operationComplete(ChannelFuture future) throws Exception {

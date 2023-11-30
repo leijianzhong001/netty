@@ -49,6 +49,12 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
                              implements io.netty.channel.socket.ServerSocketChannel {
 
     private static final ChannelMetadata METADATA = new ChannelMetadata(false, 16);
+    /**
+     * SelectorProvider.provider() 返回当前系统默认的Selector Provider程度。比如对于windows和linux来说，它们的Selector提供程序明显是不同的,windows下是 WindowSelectorProvider
+     * Java虚拟机会维护一个系统范围内的默认provider实例，它由SelectorProvider.provider方法返回。
+     * 该方法的第一次调用将定位如下所述的默认提供程序。
+     * 系统范围内的默认提供程序由DatagramChannel、Pipe、Selector、ServerSocketChannel和SocketChannel类的静态打开方法使用。
+     */
     private static final SelectorProvider DEFAULT_SELECTOR_PROVIDER = SelectorProvider.provider();
 
     private static final InternalLogger logger = InternalLoggerFactory.getInstance(NioServerSocketChannel.class);
@@ -56,10 +62,15 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
     private static final Method OPEN_SERVER_SOCKET_CHANNEL_WITH_FAMILY =
             SelectorProviderUtil.findOpenMethod("openServerSocketChannel");
 
+    /**
+     * 这个方法主要用户根据当前操作系统，创建一个java原生的 ServerSocketChannel
+     */
     private static ServerSocketChannel newChannel(SelectorProvider provider, InternetProtocolFamily family) {
         try {
+            // windows下这里返回空
             ServerSocketChannel channel =
                     SelectorProviderUtil.newChannel(OPEN_SERVER_SOCKET_CHANNEL_WITH_FAMILY, provider, family);
+            // 经典的原生NIO中是通过 ServerSocketChannel.open()方法得到一个ServerSocketChannel对象，其open方法中的实际实现也是 SelectorProvider.provider().openServerSocketChannel();
             return channel == null ? provider.openServerSocketChannel() : channel;
         } catch (IOException e) {
             throw new ChannelException("Failed to open a socket.", e);
@@ -86,6 +97,7 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
      * Create a new instance using the given {@link SelectorProvider} and protocol family (supported only since JDK 15).
      */
     public NioServerSocketChannel(SelectorProvider provider, InternetProtocolFamily family) {
+        // 注意这里的 newChannel 方法，创建java原生的 ServerSocketChannel, 目的是让 `Netty` 包装 `JDK` 的 `chanel`。
         this(newChannel(provider, family));
     }
 
@@ -93,7 +105,20 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
      * Create a new instance using the given {@link ServerSocketChannel}.
      */
     public NioServerSocketChannel(ServerSocketChannel channel) {
+        /*
+         * 1、调用了其父类`AbstractNioMessageChannel`的构造方法,主要做了如下几件事： 这里的参数为 ServerSocketChannel 和 感兴趣的事件 SelectionKey.OP_ACCEPT
+         *      1.1、设置当前 ServerSocketChannel 感兴趣的事件为SelectionKey.OP_ACCEPT
+         *      1.2、设置当前 ServerSocketChannel 为非阻塞模式
+         *      1.3、设置当前 ServerSocketChannel 的 channelId
+         *      1.4、设置当前 ServerSocketChannel 的 pipeline 为 DefaultChanelPipeline
+         */
         super(null, channel, SelectionKey.OP_ACCEPT);
+        /**
+         * 2、接下来是创建 `NioServerSocketChannelConfig`。
+         *      2.1、他是`DefaultServerSocketChannelConfig`的实现类。 DefaultServerSocketChannelConfig`中主要是持有了这里创建的`NioServerSocketChannel`对象和绑定的套接字，用于对外展示一些配置
+         *      2.2、javaChannel()方法返回的实际上就是这里参数中指定的 ServerSocketChannel
+         *      2.3、javaChannel().socket() 返回这个channel的底层套接字对象
+         */
         config = new NioServerSocketChannelConfig(this, javaChannel().socket());
     }
 

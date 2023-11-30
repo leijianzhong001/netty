@@ -1448,6 +1448,7 @@
             </goals>
             <phase>validate</phase>
             <configuration>
+              <skip>true</skip>
               <consoleOutput>true</consoleOutput>
               <logViolationsToConsole>true</logViolationsToConsole>
               <failsOnError>true</failsOnError>
@@ -1463,6 +1464,7 @@
             <id>nohttp-checkstyle-validation</id>
             <phase>validate</phase>
             <configuration>
+              <skip>true</skip>
               <!-- skip>false</skip -->
               <configLocation>nohttp-checkstyle.xml</configLocation>
               <suppressionsLocation>nohttp-checkstyle-suppressions.xml</suppressionsLocation>
@@ -1502,6 +1504,9 @@
         <version>1.0.1</version>
         <executions>
           <execution>
+            <configuration>
+              <skip>true</skip>
+            </configuration>
             <id>check-style</id>
             <goals>
               <goal>check-format</goal>

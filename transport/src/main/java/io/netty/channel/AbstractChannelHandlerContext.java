@@ -573,6 +573,8 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
             return promise;
         }
 
+        // `tail.bind`方法中，会从当前尾节点开始往前找，找到第一个`OutboundHandler`, 然后调用其`invokeBind` 方法。
+        // 在没有添加额外的`OutboundHandler`特别对bind方法进行实现的情况下，这里**找到的第一个`OutboundHandler` 其实是`pipeline`中的`head`节点,调用的是HeadContext的bind方法
         final AbstractChannelHandlerContext next = findContextOutbound(MASK_BIND);
         EventExecutor executor = next.executor();
         if (executor.inEventLoop()) {

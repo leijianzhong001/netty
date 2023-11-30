@@ -179,6 +179,9 @@ public class NioEventLoopGroup extends MultithreadEventLoopGroup {
         if (argsLength > 4) {
             tailTaskQueueFactory = (EventLoopTaskQueueFactory) args[4];
         }
+        // 需要注意的是这里的这个`executor`, 其实现是`ThreadPerTaskExecutor` ,其构造参数指定一个`DefaultThreadFactory`。
+        // `executor`的作用是调用`DefaultThreadFactory`来**创建一个线程并启动**，事实上`NioEventLoop`内部的线程就是这样创建出来的。
+        // 而`DefaultThreadFactory`则是一个线程工厂， 其**主要功能是创建一个使用指定类参与命名的线程**。
         return new NioEventLoop(this, executor, selectorProvider,
                 selectStrategyFactory.newSelectStrategy(),
                 rejectedExecutionHandler, taskQueueFactory, tailTaskQueueFactory);

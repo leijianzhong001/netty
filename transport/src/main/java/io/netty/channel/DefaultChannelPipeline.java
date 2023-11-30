@@ -970,6 +970,9 @@ public class DefaultChannelPipeline implements ChannelPipeline {
 
     @Override
     public final ChannelFuture bind(SocketAddress localAddress, ChannelPromise promise) {
+        // 1、调用尾节点的`bind`方法
+        // `tail.bind`方法中，会从当前尾节点开始往前找，找到第一个`OutboundHandler`, 然后调用其`invokeBind` 方法。
+        // 在没有添加额外的`OutboundHandler`特别对bind方法进行实现的情况下，这里**找到的第一个`OutboundHandler` 其实是`pipeline`中的`head`节点。
         return tail.bind(localAddress, promise);
     }
 
@@ -1095,13 +1098,15 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     }
 
     private void callHandlerAddedForAllHandlers() {
+        // 尤其注意这里的 `pendingHandlerCallbackHead` 变量，它是一个`PendingHandlerCallback`类型。
+        // 该变量持有了当前pipeline中【除固定的`head`节点之外， 第一个节点的引用】。 即`pendingHandlerCallbackHead` 持有了目前`pipeline`中真正意义上的第一个`handler`
         final PendingHandlerCallback pendingHandlerCallbackHead;
         synchronized (this) {
             assert !registered;
 
             // This Channel itself was registered.
             registered = true;
-
+            // 关于`this.pendingHandlerCallbackHead`的取值可以参考`pipeline`的addLast方法的逻辑，在该方法中，会将该变量赋值为第一个`handler`
             pendingHandlerCallbackHead = this.pendingHandlerCallbackHead;
             // Null out so it can be GC'ed.
             this.pendingHandlerCallbackHead = null;
@@ -1331,6 +1336,9 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         @Override
         public void bind(
                 ChannelHandlerContext ctx, SocketAddress localAddress, ChannelPromise promise) {
+            // 1、在`head`节点的`bind`方法实现中， 会调用`unsafe.bind(localAddress, promise);` 方法，这里的unsafe对象往前看可以看到是当前通道对应的`unsafe` 对象，
+            //  即它是一个`AbstractChannel.AbstractUnsafe`对象。**需要注意的是`AbstractUnsafe`是`AbstractChannel`的内部类。
+            // 2、在`AbstractUnsafe`的bind实现中，调用了一个`doBind` 方法，这个方法是`AbstractUnsafe`的外部类`AbstractChannel`的方法。
             unsafe.bind(localAddress, promise);
         }
 
