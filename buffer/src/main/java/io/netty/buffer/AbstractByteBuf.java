@@ -1128,11 +1128,18 @@ public abstract class AbstractByteBuf extends ByteBuf {
 
     @Override
     public int writeBytes(ScatteringByteChannel in, int length) throws IOException {
+        // 1、扩展缓冲区容量，确保可写字节 writableBytes() 的数量等于或大于指定的length值。如果这个缓冲区中有足够的可写字节，这个方法返回时没有副作用。
         ensureWritable(length);
+        /*
+         * 2、调用java NIO的SocketChannel.read()方法开始切实的读取数据了。 实际实现在： PooledByteBuf.setBytes()
+         *      2.1、参数in就是SocketChannel， writerIndex表示当前ByteBuf开始写入的位置，第一次是0，length 表示尝试要读取的字节数
+         *      2.2、writtenBytes 为-1代表EOF,正常关闭。 IO Exception表示读数据时被关闭
+         */
         int writtenBytes = setBytes(writerIndex, in, length);
         if (writtenBytes > 0) {
             writerIndex += writtenBytes;
         }
+        // 3、返回实际读取的字节数
         return writtenBytes;
     }
 

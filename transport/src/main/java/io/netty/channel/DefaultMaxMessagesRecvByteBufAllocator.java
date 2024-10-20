@@ -117,6 +117,7 @@ public abstract class DefaultMaxMessagesRecvByteBufAllocator implements MaxMessa
 
         @Override
         public ByteBuf allocate(ByteBufAllocator alloc) {
+            // io.netty.buffer.AbstractByteBufAllocator.ioBuffer(int)
             return alloc.ioBuffer(guess());
         }
 
@@ -145,8 +146,13 @@ public abstract class DefaultMaxMessagesRecvByteBufAllocator implements MaxMessa
 
         @Override
         public boolean continueReading(UncheckedBooleanSupplier maybeMoreDataSupplier) {
+            // 这里在创建连接的时候是不会返回true的。虽然我们确实是自动读取，并且会判断有更多可能得数据，但是因为仅仅是创建连接而不是读取数据，totalBytesRead 为0，所以这里返回false
+            // respectMaybeMoreData == false 表明不慎重对待可能得更多数据，只要有数据，就一直读16次，读不到可能浪费一次系统call
+            // respectMaybeMoreData == true  默认选项，表示慎重，会判断有更多数据的可能性（maybeMoreDataSupplier.get()），但是这个判断不是所有情况下都是准的，所以才加了respectMaybeMoreData
             return config.isAutoRead() &&
+                    // maybeMoreDataSupplier.get() 判断是否本次读取的字节数是否已经一次将ByteBuf填满，判断的标准是尝试读取的字节数attemptedBytesRead等于最后一次读取的字节数lastByteRead。 如果是，说明可能还有需要读取的数据，尝试继续读取（读取过程中会扩容），直到某次读到的数据无法填满ByteBuf，或者达到最大的读取次数16
                    (!respectMaybeMoreData || maybeMoreDataSupplier.get()) &&
+                    // totalMessages 的值表示已经读取的次数，maxMessagePerRead表示最大允许读的次数，默认16
                    totalMessages < maxMessagePerRead && (ignoreBytesRead || totalBytesRead > 0);
         }
 
@@ -161,6 +167,7 @@ public abstract class DefaultMaxMessagesRecvByteBufAllocator implements MaxMessa
 
         @Override
         public void attemptedBytesRead(int bytes) {
+            // 设置本次尝试读取的数据大小
             attemptedBytesRead = bytes;
         }
 

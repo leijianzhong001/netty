@@ -64,6 +64,7 @@ public final class NioChannelOption<T> extends ChannelOption<T> {
         if (channel instanceof ServerSocketChannel && option.option == java.net.StandardSocketOptions.IP_TOS) {
             // Skip IP_TOS as a workaround for a JDK bug:
             // See https://mail.openjdk.java.net/pipermail/nio-dev/2018-August/005365.html
+            // 规避jdk中 IP_TOS 选项bug, 直接不允许设置
             return false;
         }
         try {

@@ -353,7 +353,10 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
     @Override
     protected int doReadBytes(ByteBuf byteBuf) throws Exception {
         final RecvByteBufAllocator.Handle allocHandle = unsafe().recvBufAllocHandle();
+        // allocHandle.attemptedBytesRead 表示本次尝试读取的字节数，这里直接设置为前面guess到的ByteBuf大小，即2048。
+        // allocHandle.attemptedBytesRead 实现是在 DefaultMaxMessagesRecvByteBufAllocator.MaxMessageHandle#attemptedBytesRead(int)
         allocHandle.attemptedBytesRead(byteBuf.writableBytes());
+        // 返回实际读取的字节数
         return byteBuf.writeBytes(javaChannel(), allocHandle.attemptedBytesRead());
     }
 
@@ -492,9 +495,11 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
 
         @Override
         public <T> boolean setOption(ChannelOption<T> option, T value) {
+            // 如果是jdk大于7，并且option的实现类是 NioChannelOption，即设置时是通过NioChannelOption点出来的选项， 则走下面的分支。
             if (PlatformDependent.javaVersion() >= 7 && option instanceof NioChannelOption) {
                 return NioChannelOption.setOption(jdkChannel(), (NioChannelOption<T>) option, value);
             }
+            // 在设置时通过 ChannelOption 类点出来的选项走这个分支，这里是硬编码，一般是不推荐的。
             return super.setOption(option, value);
         }
 

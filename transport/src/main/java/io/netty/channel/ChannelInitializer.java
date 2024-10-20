@@ -109,9 +109,11 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
             // The good thing about calling initChannel(...) in handlerAdded(...) is that there will be no ordering
             // surprises if a ChannelInitializer will add another ChannelInitializer. This is as all handlers
             // will be added in the expected order.
+            // 1、调用自己的 initChannel 方法，将用户在该方法中指定的handler添加到pipeline中。
             if (initChannel(ctx)) {
 
                 // We are done with init the Channel, removing the initializer now.
+                // 2、特别注意这里，添加handler完成之后，将自己从pipeline中移除
                 removeState(ctx);
             }
         }
@@ -148,6 +150,7 @@ public abstract class ChannelInitializer<C extends Channel> extends ChannelInbou
         } else {
             // The context is not removed yet which is most likely the case because a custom EventExecutor is used.
             // Let's schedule it on the EventExecutor to give it some more time to be completed in case it is offloaded.
+            // context还没有被删除，这是最有可能的情况，因为使用了自定义EventExecutor。让我们在EventExecutor上调度它，给它更多的时间来完成，以防它被卸载。
             ctx.executor().execute(new Runnable() {
                 @Override
                 public void run() {

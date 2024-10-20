@@ -199,17 +199,25 @@ public class DefaultChannelPipeline implements ChannelPipeline {
     public final ChannelPipeline addLast(EventExecutorGroup group, String name, ChannelHandler handler) {
         final AbstractChannelHandlerContext newCtx;
         synchronized (this) {
+            // 1、`checkMultiplicity` 判断当前`handler` 是否可以被添加到多个pipeline中，如果没有标注`@Sharable`注解，则不能被添加多次。如果这里检测到其被添加多次的话， 就抛出异常。
             checkMultiplicity(handler);
 
+            // 2、`newContext` 将当前`handler`封装成一个`DefaultChannelHandlerContext` 对象，这个对象将被添加到`pipeline`中。
+            // 并且`pipeline`中所有的`handler`都是被封装成`DefaultChannelHandlerContext`
             newCtx = newContext(group, filterName(name, handler), handler);
 
+            // 3、`addLast0` 用于将前面构建的`DefaultChannelHandlerContext`  添加到链表的末尾。也就是tail节点的前一个节点。
             addLast0(newCtx);
 
             // If the registered is false it means that the channel was not registered on an eventLoop yet.
             // In this case we add the context to the pipeline and add a task that will call
             // ChannelHandler.handlerAdded(...) once the channel is registered.
+            // 如果registered为false，意味着该通道还没有在eventLoop中注册。在这种情况下，我们将创建的 DefaultChannelHandlerContext 添加到pipeline中，
+            // 并添加一个任务，一旦通道注册, 该任务将调用ChannelHandler.handlerAdded(…)
             if (!registered) {
                 newCtx.setAddPending();
+                // 4、`callHandlerCallbackLater` 方法用于设置 `pendingHandlerCallbackHead `变量的值， `pendingHandlerCallbackHead `变量用于指代真正意义上的头节点，也就是除head节点之外的第一个节点。
+                // 这个变量用于在通道注册到选择器操作完成之前，作为handler入口来调用`pipeline`中已存在的`handler`的`handlerAdded`方法
                 callHandlerCallbackLater(newCtx, true);
                 return this;
             }
@@ -220,6 +228,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
                 return this;
             }
         }
+        // 5、`callHandlerAdded0` 方法则用来在当前`handler`加入`pipeline`中的时候，触发当前`handler`的`handlerAdded` 方法
         callHandlerAdded0(newCtx);
         return this;
     }
@@ -1367,6 +1376,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
 
         @Override
         public void read(ChannelHandlerContext ctx) {
+            // 实际上就是注册OP_ACCEPT/OP_READ事件
             unsafe.beginRead();
         }
 
@@ -1404,7 +1414,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         @Override
         public void channelActive(ChannelHandlerContext ctx) {
             ctx.fireChannelActive();
-
+            // 注册读事件，读事件包括：创建连接、读数据
             readIfIsAutoRead();
         }
 

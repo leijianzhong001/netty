@@ -39,10 +39,14 @@ public class WorldClockServerInitializer extends ChannelInitializer<SocketChanne
             p.addLast(sslCtx.newHandler(ch.alloc()));
         }
 
+        // 一次解码器 处理粘包和半包问题
         p.addLast(new ProtobufVarint32FrameDecoder());
+        // 二次解码器 将二进制数据转为java对象
         p.addLast(new ProtobufDecoder(WorldClockProtocol.Locations.getDefaultInstance()));
 
+        // 一次编码器 将二进制数编码成指定格式的帧
         p.addLast(new ProtobufVarint32LengthFieldPrepender());
+        // 二次编码器 将java对象转为二进制数据
         p.addLast(new ProtobufEncoder());
 
         p.addLast(new WorldClockServerHandler());

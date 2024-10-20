@@ -61,6 +61,7 @@ import java.util.List;
  */
 public class DelimiterBasedFrameDecoder extends ByteToMessageDecoder {
 
+    // 这一这里的这个参数，我们一起指定多个分隔符，而不是只能一个。
     private final ByteBuf[] delimiters;
     private final int maxFrameLength;
     private final boolean stripDelimiter;

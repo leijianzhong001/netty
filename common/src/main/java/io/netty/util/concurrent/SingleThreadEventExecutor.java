@@ -832,9 +832,12 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
     }
 
     private void execute(Runnable task, boolean immediate) {
+        // 1、判断执行该方法的线程是否是当前EventLoop的内置线程，如果是服务器第一次启动，这里就返回false
         boolean inEventLoop = inEventLoop();
+        // 2、不论如何，先把指定的任务添加到任务队列中。
         addTask(task);
         if (!inEventLoop) {
+            // 3、如果inEventLoop为false，则可能是其他线程在执行该方法，或者是服务器第一次启动，EventLoop的内置线程还未启动，此时尝试去启动EventLoop内置的线程
             startThread();
             if (isShutdown()) {
                 boolean reject = false;
@@ -952,6 +955,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
             if (STATE_UPDATER.compareAndSet(this, ST_NOT_STARTED, ST_STARTED)) {
                 boolean success = false;
                 try {
+                    // 启动内置线程
                     doStartThread();
                     success = true;
                 } finally {
@@ -983,6 +987,8 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
 
     private void doStartThread() {
         assert thread == null;
+        // 1、这里的这个executor是ThreadPerTaskExecutor对象， 这个成员变量会在创建NioEventLoopGroup中的NioEventLoop对象是被指定。
+        // 其 `ThreadPerTaskExecutor.execute` 方法实现是使用`DefaultThreadFactory`方法来来创建一个线程并start执行任务。代码位置： ThreadPerTaskExecutor.execute
         executor.execute(new Runnable() {
             @Override
             public void run() {
@@ -994,6 +1000,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
                 boolean success = false;
                 updateLastExecutionTime();
                 try {
+                    // 2、这里就是真实的无限循环Selector逻辑
                     SingleThreadEventExecutor.this.run();
                     success = true;
                 } catch (Throwable t) {

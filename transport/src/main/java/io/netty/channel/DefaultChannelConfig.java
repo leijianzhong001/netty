@@ -57,6 +57,7 @@ public class DefaultChannelConfig implements ChannelConfig {
 
     protected final Channel channel;
 
+    // 默认的 ByteBuf 分配器的实现，池化的ByteBuf
     private volatile ByteBufAllocator allocator = ByteBufAllocator.DEFAULT;
     private volatile RecvByteBufAllocator rcvBufAllocator;
     private volatile MessageSizeEstimator msgSizeEstimator = DEFAULT_MSG_SIZE_ESTIMATOR;
@@ -178,6 +179,7 @@ public class DefaultChannelConfig implements ChannelConfig {
         } else if (option == ALLOCATOR) {
             setAllocator((ByteBufAllocator) value);
         } else if (option == RCVBUF_ALLOCATOR) {
+            //
             setRecvByteBufAllocator((RecvByteBufAllocator) value);
         } else if (option == AUTO_READ) {
             setAutoRead((Boolean) value);

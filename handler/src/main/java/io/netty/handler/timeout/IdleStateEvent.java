@@ -23,6 +23,10 @@ import io.netty.util.internal.StringUtil;
  * A user event triggered by {@link IdleStateHandler} when a {@link Channel} is idle.
  */
 public class IdleStateEvent {
+    /**
+     * 可以看到下面区分了6种事件， 除了普通的读空闲、写空闲、读写空闲之外，还区分了是否是第一次读空闲、写空闲、读写空闲。
+     * 这主要是为了支持类似只处理第一次idle事件，后面的全部忽略这样的功能。
+     */
     public static final IdleStateEvent FIRST_READER_IDLE_STATE_EVENT =
             new DefaultIdleStateEvent(IdleState.READER_IDLE, true);
     public static final IdleStateEvent READER_IDLE_STATE_EVENT =

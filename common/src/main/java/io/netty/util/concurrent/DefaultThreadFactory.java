@@ -118,6 +118,8 @@ public class DefaultThreadFactory implements ThreadFactory {
     }
 
     protected Thread newThread(Runnable r, String name) {
+        // FastThreadLocalThread 类型的线程在访问 FastThreadLocal 时 可以获得更高的访问性能。
+        // 因为ByteBuf中分配的内存可能是从 线程本地缓存 FastThreadLocal 中分配出来的，所以默认 DefaultThreadFactory 分配的线程都是 FastThreadLocalThread 类型的
         return new FastThreadLocalThread(threadGroup, r, name);
     }
 }

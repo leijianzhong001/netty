@@ -37,8 +37,8 @@ import java.io.InputStreamReader;
  * Simple Redis client that demonstrates Redis commands against a Redis server.
  */
 public class RedisClient {
-    private static final String HOST = System.getProperty("host", "127.0.0.1");
-    private static final int PORT = Integer.parseInt(System.getProperty("port", "6379"));
+    private static final String HOST = System.getProperty("host", "10.243.66.12");
+    private static final int PORT = Integer.parseInt(System.getProperty("port", "6380"));
 
     public static void main(String[] args) throws Exception {
         EventLoopGroup group = new NioEventLoopGroup();

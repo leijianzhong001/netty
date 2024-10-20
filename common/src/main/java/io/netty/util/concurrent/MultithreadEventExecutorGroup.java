@@ -73,6 +73,7 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
         checkPositive(nThreads, "nThreads");
 
         if (executor == null) {
+            // 注意这个，EventLoop内部的线程对象是由它创建出来并启动的
             executor = new ThreadPerTaskExecutor(newDefaultThreadFactory());
         }
 

@@ -116,6 +116,7 @@ public final class SocketUtils {
             return AccessController.doPrivileged(new PrivilegedExceptionAction<SocketChannel>() {
                 @Override
                 public SocketChannel run() throws IOException {
+                    // 非阻塞模式下，没有连接请求时，会返回null。但是我们是因为前面select到key才进入到这里的，所以肯定有连接请求
                     return serverSocketChannel.accept();
                 }
             });

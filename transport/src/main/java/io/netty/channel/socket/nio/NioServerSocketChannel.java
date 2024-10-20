@@ -54,6 +54,7 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
      * Java虚拟机会维护一个系统范围内的默认provider实例，它由SelectorProvider.provider方法返回。
      * 该方法的第一次调用将定位如下所述的默认提供程序。
      * 系统范围内的默认提供程序由DatagramChannel、Pipe、Selector、ServerSocketChannel和SocketChannel类的静态打开方法使用。
+     * 这个provider是Netty通用模式实现跨平台NIO实现多路复用器的关键。
      */
     private static final SelectorProvider DEFAULT_SELECTOR_PROVIDER = SelectorProvider.provider();
 
@@ -141,6 +142,7 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
     public boolean isActive() {
         // As java.nio.ServerSocketChannel.isBound() will continue to return true even after the channel was closed
         // we will also need to check if it is open.
+        // 判断是否激活的标准：通道打开并且已经绑定到端口上
         return isOpen() && javaChannel().socket().isBound();
     }
 
@@ -176,11 +178,14 @@ public class NioServerSocketChannel extends AbstractNioMessageChannel
 
     @Override
     protected int doReadMessages(List<Object> buf) throws Exception {
+        // 1、接受新连接并创建SocketChannel
         SocketChannel ch = SocketUtils.accept(javaChannel());
 
         try {
             if (ch != null) {
+                // 将我们 ServerSocketChannel.accept 得到的 SocketChannel 放到输出列表里
                 buf.add(new NioSocketChannel(this, ch));
+                // 返回1，代表仅仅创建了一个链接
                 return 1;
             }
         } catch (Throwable t) {

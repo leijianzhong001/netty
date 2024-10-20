@@ -76,6 +76,8 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
             try {
                 try {
                     do {
+                        // 1、创建SocketChannel，对于ServerSocketChannel来讲， 实际操作就是调用ServerSocketChannel的accpet方法。
+                        // localRead 表示读取的数据或者创建的连接数
                         int localRead = doReadMessages(readBuf);
                         if (localRead == 0) {
                             break;
@@ -85,7 +87,9 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
                             break;
                         }
 
+                        // 2、记录一下创建的次数
                         allocHandle.incMessagesRead(localRead);
+                        // 3、这里判断一下是否需要继续读取，ServerSocketChannel 时总是返回false
                     } while (continueReading(allocHandle));
                 } catch (Throwable t) {
                     exception = t;
@@ -94,6 +98,14 @@ public abstract class AbstractNioMessageChannel extends AbstractNioChannel {
                 int size = readBuf.size();
                 for (int i = 0; i < size; i ++) {
                     readPending = false;
+                    /**
+                     * 4、触发channelRead方法。
+                     *      4.1、注意：对于ServerSocketChannel来说，此时其pipeline是有ServerBootstrapAcceptor这个handler的，这个handler的channelRead方法做了如下非常重要的工作：
+                     *          4.1.1、将用户指定的childHandler添加到SocketChannel的pipeline中；
+                     *          4.1.2、应用用户指定的childOptions；
+                     *          4.1.3、注册 SocketChannel 到 workerGroup 中的某个EventLoop上，也注册到了其内部的Selector上；
+                     *
+                     */
                     pipeline.fireChannelRead(readBuf.get(i));
                 }
                 readBuf.clear();

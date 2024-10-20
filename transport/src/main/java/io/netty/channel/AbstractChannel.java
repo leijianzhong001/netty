@@ -443,6 +443,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
         @Override
         public RecvByteBufAllocator.Handle recvBufAllocHandle() {
             if (recvHandle == null) {
+                // AdaptiveRecvByteBufAllocator$HandlerImpl
                 recvHandle = config().getRecvByteBufAllocator().newHandle();
             }
             return recvHandle;
@@ -483,7 +484,13 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 register0(promise);
             } else {
                 try {
-                    // 2、而如果是由用户线程或其他线程发起的注册操作，则将注册操作放入到`NioEvenLoop`的任务队列中串行执行。
+                    /*
+                     * 2、注册ServerSocketChannel`到Selector上。而如果是由用户线程或其他线程发起的注册操作，则将注册操作放入到`NioEvenLoop`的任务队列中串行执行。
+                     *      2.1、需要注意的是，在服务启动过程中，由于EventLoop实际上还未启动，EventLoop内部的thread对象是null, 所以第一次启动总是进入这个分支
+                     *      2.2、提交任务队列的`eventLoop.execute()` 逻辑，最终会调用到`NioEventLoop`的父类`SingleThreadEventExecutor`的`execute` 方法。
+                     *      2.3、在该方法中，如果发现当前EventLoop还未启动，则会启动当前EventLoop中的循环线程。
+                     * 3、在创建SocketChannel的过程中，也会走这个分支，因为此时是通过BossGroup中的线程进来的，但是这里的EventLoop是WorkerGroup中的
+                     */
                     eventLoop.execute(new Runnable() {
                         @Override
                         public void run() {
@@ -521,6 +528,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 }
                 boolean firstRegistration = neverRegistered;
                 // 2、接着注册通道到选择器上。这是个同步操作，不是异步的
+                // 注意：无论是ServerSocketChannel,还是SocketChannel， 其注册到选择器上都是走这里
                 doRegister();
                 neverRegistered = false;
                 registered = true;
@@ -541,9 +549,12 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 pipeline.fireChannelRegistered();
                 // Only fire a channelActive if the channel has never been registered. This prevents firing
                 // multiple channel actives if the channel is deregistered and re-registered.
+                // 5、ServerSocketChannel 的注册不会走进下面的if, 因为显然此时 ServerSocketChannel 并未激活
+                // ServerSocketChannel 接受连接创建的 SocketChannel可以走进去， 因为SocketChannel不需要bind，已经是激活状态了
                 if (isActive()) {
                     if (firstRegistration) {
-                        // 5、判断通道如果处于激活状态，还会触发通道的`Active`事件，该事件对应`channelActive` 方法。
+                        // 5.1、判断通道如果处于激活状态，还会触发通道的`Active`事件，该事件对应`channelActive` 方法。
+                        // 5.2、注意这个地方，SocketChannel的读事件的注册是通过这里的Active事件触发的，同样也是在head节点的read方法中实现
                         pipeline.fireChannelActive();
                     } else if (config().isAutoRead()) {
                         // This channel was registered before and autoRead() is set. This means we need to begin read
@@ -581,7 +592,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                         "is not bound to a wildcard address; binding to a non-wildcard " +
                         "address (" + localAddress + ") anyway as requested.");
             }
-
+            // 判断是否激活的标准：通道打开并且已经绑定到端口上。此时还绑定到端口，所以 wasActive 是false
             boolean wasActive = isActive();
             try {
                 // 1、在`AbstractUnsafe`的bind实现中，调用了一个`doBind` 方法，这个方法是`AbstractUnsafe`的外部类`AbstractChannel`的方法。其外部类并没有实现这个方法，只是提供了一个抽象方法
@@ -593,11 +604,12 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 return;
             }
 
-            // 2、在进行完端口绑定之后，还会触发`ChannelActive`事件， 对应的`handler`方法是：`channelActive`
+            // 2、在进行完端口绑定之后，才会开始从非active到active的转变。触发`ChannelActive`事件， 对应的`handler`方法是：`channelActive`
             if (!wasActive && isActive()) {
                 invokeLater(new Runnable() {
                     @Override
                     public void run() {
+                        // 3、特别注意这里的这个激活事件，HeadContext这个handler在其channelActive方法中，会将Selector上ServerSocketChannel感兴趣的事件设置为 创建连接/读数据
                         pipeline.fireChannelActive();
                     }
                 });

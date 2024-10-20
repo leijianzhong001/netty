@@ -32,9 +32,11 @@ public final class DefaultEventExecutorChooserFactory implements EventExecutorCh
 
     @Override
     public EventExecutorChooser newChooser(EventExecutor[] executors) {
+        // 这里如果参数中指定的EventLoopGroup中线程的数量为2的次方，就使用 isPowerOfTwo
         if (isPowerOfTwo(executors.length)) {
             return new PowerOfTwoEventExecutorChooser(executors);
         } else {
+            // 否则的话，使用下面这个chooser
             return new GenericEventExecutorChooser(executors);
         }
     }
@@ -53,6 +55,7 @@ public final class DefaultEventExecutorChooserFactory implements EventExecutorCh
 
         @Override
         public EventExecutor next() {
+            // 这里的executors.size的值肯定是2的次幂，此时使用 & 运算效率更高
             return executors[idx.getAndIncrement() & executors.length - 1];
         }
     }
@@ -70,6 +73,7 @@ public final class DefaultEventExecutorChooserFactory implements EventExecutorCh
 
         @Override
         public EventExecutor next() {
+            // 递增，取模，取绝对值，不然可能是负数
             return executors[(int) Math.abs(idx.getAndIncrement() % executors.length)];
         }
     }

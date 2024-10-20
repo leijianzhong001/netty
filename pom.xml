@@ -791,7 +791,7 @@
       </dependency>
       <dependency>
         <groupId>${project.groupId}</groupId>
-        <artifactId>${tcnative.artifactId}</artifactId>
+        <artifactId>${tcnative.artifactId}</artifactId> <!-- netty-tcnative -->
         <version>${tcnative.version}</version>
         <classifier>${tcnative.classifier}</classifier>
         <scope>runtime</scope>

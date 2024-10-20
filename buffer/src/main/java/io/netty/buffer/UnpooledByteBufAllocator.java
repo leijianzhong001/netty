@@ -73,21 +73,31 @@ public final class UnpooledByteBufAllocator extends AbstractByteBufAllocator imp
     public UnpooledByteBufAllocator(boolean preferDirect, boolean disableLeakDetector, boolean tryNoCleaner) {
         super(preferDirect);
         this.disableLeakDetector = disableLeakDetector;
+        // 初始化「noCleaner」变量
         noCleaner = tryNoCleaner && PlatformDependent.hasUnsafe()
                 && PlatformDependent.hasDirectBufferNoCleanerConstructor();
     }
 
+    /**
+     *  获取一个非池化的堆内内存「ByteBuf」实例
+     */
     @Override
     protected ByteBuf newHeapBuffer(int initialCapacity, int maxCapacity) {
+        // 根据平台是否支持Unsafe而创建不同类型的ByteBuf对象
         return PlatformDependent.hasUnsafe() ?
                 new InstrumentedUnpooledUnsafeHeapByteBuf(this, initialCapacity, maxCapacity) :
                 new InstrumentedUnpooledHeapByteBuf(this, initialCapacity, maxCapacity);
     }
 
+    /**
+     *  获取一个非池化的堆外内存「ByteBuf」实例
+     */
     @Override
     protected ByteBuf newDirectBuffer(int initialCapacity, int maxCapacity) {
         final ByteBuf buf;
+        // 大多数时候都是有Unsafe的
         if (PlatformDependent.hasUnsafe()) {
+            // 大多数时候都是有Cleaner的,所以一般都是走 InstrumentedUnpooledUnsafeDirectByteBuf
             buf = noCleaner ? new InstrumentedUnpooledUnsafeNoCleanerDirectByteBuf(this, initialCapacity, maxCapacity) :
                     new InstrumentedUnpooledUnsafeDirectByteBuf(this, initialCapacity, maxCapacity);
         } else {

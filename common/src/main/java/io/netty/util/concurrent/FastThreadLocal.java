@@ -42,6 +42,12 @@ import static io.netty.util.internal.InternalThreadLocalMap.VARIABLES_TO_REMOVE_
  *
  * @param <V> the type of the thread-local variable
  * @see ThreadLocal
+ *
+ * {@link FastThreadLocal}是{@link ThreadLocal}的一个特殊变体，当使用{@link FastThreadLocalThread}类型的线程访问时，可以获得更高的访问性能。
+ * 在内部，{@link FastThreadLocal}使用数组中的常量索引来查找变量，而不是使用哈希码和哈希表。虽然看起来非常微妙，但相对于使用哈希表，它产生了轻微的性能优势，并且在频繁访问时非常有用。
+ * 要利用这个线程局部变量，线程必须是{@link FastThreadLocalThread}或它的子类型。由于这个原因，默认情况下，所有由{@link DefaultThreadFactory}创建的线程都是{@link FastThreadLocalThread}。
+ *
+ * 注意，提高访问速度的场景只适用于扩展为{@link FastThreadLocalThread}的线程，因为它需要一个特殊的字段来存储必要的状态。任何其他类型的线程的访问都会退回到常规的{@link ThreadLocal}。
  */
 public class FastThreadLocal<V> {
 
@@ -174,6 +180,7 @@ public class FastThreadLocal<V> {
     private V initialize(InternalThreadLocalMap threadLocalMap) {
         V v = null;
         try {
+            // 实际实现是 PoolThreadLocalCache.initialValue
             v = initialValue();
             if (v == InternalThreadLocalMap.UNSET) {
                 throw new IllegalArgumentException("InternalThreadLocalMap.UNSET can not be initial value.");

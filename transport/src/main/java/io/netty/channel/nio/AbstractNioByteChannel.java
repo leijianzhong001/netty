@@ -139,7 +139,10 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                 return;
             }
             final ChannelPipeline pipeline = pipeline();
+            // ByteBuf分配器，默认是 PooledByteBufAllocator
             final ByteBufAllocator allocator = config.getAllocator();
+            // Handle的类型是 是 自适应数据大小的分配器（AdaptiveRecvByteBufAllocator$HandlerImpl）, 需要这个 allocHandle 原因是需要自适应的分配ByteBuf大小
+            // 注意，分配还是通过 PooledByteBufAllocator 分配，但分配多大内存是通过 AdaptiveRecvByteBufAllocator$HandlerImpl 得到的
             final RecvByteBufAllocator.Handle allocHandle = recvBufAllocHandle();
             allocHandle.reset(config);
 
@@ -147,7 +150,10 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             boolean close = false;
             try {
                 do {
+                    // 1、尽可能分配合适的大小：guess。 这一行的代码只是猜测将要读取的数据大小，并按照这个大小分配一个ByteBuf
+                    // 具体实现是在 DefaultMaxMessagesRecvByteBufAllocator.MaxMessageHandle.allocate
                     byteBuf = allocHandle.allocate(allocator);
+                    // 2、读并且记录读了多少，如果读满了，下次continue中就直接扩容。  AdaptiveRecvByteBufAllocator.HandleImpl.lastBytesRead
                     allocHandle.lastBytesRead(doReadBytes(byteBuf));
                     if (allocHandle.lastBytesRead() <= 0) {
                         // nothing was read. release the buffer.
@@ -163,11 +169,14 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
 
                     allocHandle.incMessagesRead(1);
                     readPending = false;
+                    // 3、触发业务处理的地方，一次数据读取触发一次
                     pipeline.fireChannelRead(byteBuf);
                     byteBuf = null;
                 } while (allocHandle.continueReading());
 
+                // 4、记录本次读事件读到的字节总数，以帮助计算下次应该分配的ByteBuf大小。 这个就是自适应的关键。
                 allocHandle.readComplete();
+                // 5、触发一次读完成事件。数据至多读取16次之后，不管还有没有数据，认为是一次读事件完成，触发一次readComplete事件
                 pipeline.fireChannelReadComplete();
 
                 if (close) {

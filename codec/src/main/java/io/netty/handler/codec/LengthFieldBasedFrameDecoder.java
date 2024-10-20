@@ -44,9 +44,9 @@ import io.netty.channel.ChannelHandlerContext;
  * length field.  Therefore, it can be decoded with the simplistic parameter
  * combination.
  * <pre>
- * <b>lengthFieldOffset</b>   = <b>0</b>
- * <b>lengthFieldLength</b>   = <b>2</b>
- * lengthAdjustment    = 0
+ * <b>lengthFieldOffset</b>   = <b>0</b> 这个参数指的是长度域的偏移量，即我们应该从数据包的多少第几个字节开始，才认为是长度数据
+ * <b>lengthFieldLength</b>   = <b>2</b> 长度域的长度
+ * lengthAdjustment    = 0               这个参数用于决定长度域和数据域之间的空隙，这能够让我们在这个空隙中附加一些数据。需要注意的是，长度的值并不会把这部分长度计算进去
  * initialBytesToStrip = 0 (= do not strip header)
  *
  * BEFORE DECODE (14 bytes)         AFTER DECODE (14 bytes)

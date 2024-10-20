@@ -26,17 +26,34 @@ import io.netty.util.internal.StringUtil;
 
 /**
  * Skeletal {@link ByteBufAllocator} implementation to extend.
+ * 抽象类 AbstractByteBufAllocator 实现了 ByteBufAllocator 所有的接口，它是 ByteBufAllocator 的骨架。
+ * 我们知道，使用 Allocator 是为了更好地管理 ByteBuf 对象的分配，可以判断分配的内存容量是否超标、跟踪已分配的 ByteBuf 并判断是否存在内存泄漏问题。
+ * 因此，抽象类 AbstractByteBufAllocator 内部有两个方法分别包装 ByteBuf 和 CompositeByteBuf 对象，用于检测内存泄漏。
+ * 抽象类并没有定义太多的变量，不过有一个比较重要的 boolean 类型变量 directDefault ，它控制着 buffer() API 所返回的对象是否为堆内内存还是堆外内存。
+ *
  */
 public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
+    // 默认初始容量
     static final int DEFAULT_INITIAL_CAPACITY = 256;
+    // 默认最大容量
     static final int DEFAULT_MAX_CAPACITY = Integer.MAX_VALUE;
+    // 默认最多组合ByteBuf
     static final int DEFAULT_MAX_COMPONENTS = 16;
+    // 当需要扩容很操作时需要进行新容量计算，以 CALCULATE_THRESHOLD 大小进行增长,而非粗暴*2
     static final int CALCULATE_THRESHOLD = 1048576 * 4; // 4 MiB page
 
     static {
         ResourceLeakDetector.addExclusions(AbstractByteBufAllocator.class, "toLeakAwareBuffer");
     }
 
+    /**
+     * 追踪ByteBuf对象，判断是否发生内存泄漏
+     * 对于SIMPLE级别，使用SimpleLeakAwareByteBuf包装ByteBuf
+     * 对于ADVANCED、PARANOID级别，使用AdvancedLeakAwareByteBuf包装ByteBuf
+     * 也就是通过包装类，当调用ByteBuf相关API时，包装类会根据动作的不同记录数据，
+     * 比如 release() 动作会执行 leak.record();函数，
+     * 可以理解这个函数记录当前ByteBuf的使用情况， 因此，通过回溯记录就可以判断哪些ByteBuf对象存在内存泄漏
+     */
     protected static ByteBuf toLeakAwareBuffer(ByteBuf buf) {
         ResourceLeakTracker<ByteBuf> leak;
         switch (ResourceLeakDetector.getLevel()) {
@@ -137,6 +154,7 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
     @Override
     public ByteBuf ioBuffer(int initialCapacity) {
         if (PlatformDependent.hasUnsafe() || isDirectBufferPooled()) {
+            // 一般 sun.misc.Unsafe 都有，所以PlatformDependent.hasUnsafe()肯定返回true, 使用直接内存
             return directBuffer(initialCapacity);
         }
         return heapBuffer(initialCapacity);
@@ -235,11 +253,13 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
 
     /**
      * Create a heap {@link ByteBuf} with the given initialCapacity and maxCapacity.
+     * 这是子类需要实现的抽象方法，返回堆内内存的ByteBuf
      */
     protected abstract ByteBuf newHeapBuffer(int initialCapacity, int maxCapacity);
 
     /**
      * Create a direct {@link ByteBuf} with the given initialCapacity and maxCapacity.
+     * 这是子类需要实现的抽象方法，返回堆外内存的ByteBuf
      */
     protected abstract ByteBuf newDirectBuffer(int initialCapacity, int maxCapacity);
 

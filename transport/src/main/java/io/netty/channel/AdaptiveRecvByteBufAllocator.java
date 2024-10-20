@@ -42,11 +42,13 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
     private static final int INDEX_INCREMENT = 4;
     private static final int INDEX_DECREMENT = 1;
 
+    // 16,32,48,64,80,96,112,128,144,160,176,192,208,224,240,256,272,288,304,320,336,352,368,384,400,416,432,448,464,480,496
     private static final int[] SIZE_TABLE;
 
     static {
         List<Integer> sizeTable = new ArrayList<Integer>();
         for (int i = 16; i < 512; i += 16) {
+            // 16,32,48,64,80,96,112,128,144,160,176,192,208,224,240,256,272,288,304,320,336,352,368,384,400,416,432,448,464,480,496
             sizeTable.add(i);
         }
 
@@ -55,6 +57,7 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
             sizeTable.add(i);
         }
 
+        // sizeTable.size() == 31
         SIZE_TABLE = new int[sizeTable.size()];
         for (int i = 0; i < SIZE_TABLE.length; i ++) {
             SIZE_TABLE[i] = sizeTable.get(i);
@@ -112,7 +115,11 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
             // This helps adjust more quickly when large amounts of data is pending and can avoid going back to
             // the selector to check for more data. Going back to the selector can add significant latency for large
             // data transfers.
+            // 如果我们实际读取到了我们尝试读取的数据量，我们应该检查是否需要扩大我们下一个guess的大小。
+            // 这有助于在等待大量数据时更快地调整，并可以避免返回选择器以检查更多数据。返回选择器可能会为大量数据传输增加显著的延迟。
             if (bytes == attemptedBytesRead()) {
+                // 如果发现我们本次实际读取到的字节数等于我们尝试读取的字节数，说明我们本次读取直接就填满了我们本次指定的ByteBuf，这大概率意味着可能Channel中还有更多的数据等待我们读取
+                // 所以这里的record方法根据本次一次读取数据的情况，预测下一次我们分配的ByteBuf大小 nextReceiveBufferSize
                 record(bytes);
             }
             super.lastBytesRead(bytes);
@@ -120,18 +127,30 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
 
         @Override
         public int guess() {
+            // 这个值由最近一次读操作决定，例如上一次读取最终使用了1024大小的ByteBuf, 那么本次读取直接分配1048
             return nextReceiveBufferSize;
         }
 
+        /**
+         * 接受数据的ByteBuf的容量会尽可能的足够大以能够接受数据
+         * 也会尽可能的小以避免空间浪费
+         * 放大果断，缩小谨慎（需要连续2 次判断）
+         */
         private void record(int actualReadBytes) {
+            // 尝试是否可以减小分配的空间依旧能够满足要求
+            // 尝试方法：当前实际读取的字节数是否小于或者等于打算缩小到的尺寸
             if (actualReadBytes <= SIZE_TABLE[max(0, index - INDEX_DECREMENT)]) {
+                // decreaseNow 连续尝试两次都可以缩小
+                // decreaseNow 第一次进来是false, 所以第一次即时满足减小分配的条件，也不进行，直到第二次进来发现依旧可以减小分配，才实际的进行缩小。
                 if (decreaseNow) {
                     index = max(index - INDEX_DECREMENT, minIndex);
+                    // 最终猜测到的Buffer大小
                     nextReceiveBufferSize = SIZE_TABLE[index];
                     decreaseNow = false;
                 } else {
                     decreaseNow = true;
                 }
+            // 判断是否实际读取的数据大于等于预估的，如果是，尝试扩容
             } else if (actualReadBytes >= nextReceiveBufferSize) {
                 index = min(index + INDEX_INCREMENT, maxIndex);
                 nextReceiveBufferSize = SIZE_TABLE[index];

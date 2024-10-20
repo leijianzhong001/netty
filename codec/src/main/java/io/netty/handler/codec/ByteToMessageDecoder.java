@@ -77,17 +77,22 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
 
     /**
      * Cumulate {@link ByteBuf}s by merge them into one {@link ByteBuf}'s, using memory copies.
+     * 通过将多个 ByteBuf 合并为一个 ByteBuf 来累积数据，使用内存拷贝。
+     * 这个是数据累积器的默认实现是 MERGE_CUMULATOR
      */
     public static final Cumulator MERGE_CUMULATOR = new Cumulator() {
         @Override
         public ByteBuf cumulate(ByteBufAllocator alloc, ByteBuf cumulation, ByteBuf in) {
             if (cumulation == in) {
                 // when the in buffer is the same as the cumulation it is doubly retained, release it once
+                // 当in缓冲区与累积值相同时，它被双重保留，释放一次
                 in.release();
                 return cumulation;
             }
             if (!cumulation.isReadable() && in.isContiguous()) {
                 // If cumulation is empty and input buffer is contiguous, use it directly
+                // 如果已累积数据是空的，并且输入ByteBuf是连续的（内存上连续的，普通的ByteBuf都是连续的，区别于Composite buffer），直接将输入ByteBuf作为累积数据返回
+                // 当我们第一次进行解码，或者累积数据被清理过一次后，就会进入这个逻辑
                 cumulation.release();
                 return in;
             }
@@ -100,8 +105,10 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
                     // - cumulation cannot be resized to accommodate the additional data
                     // - cumulation can be expanded with a reallocation operation to accommodate but the buffer is
                     //   assumed to be shared (e.g. refCnt() > 1) and the reallocation may not be safe.
+                    // 这是一段扩容的逻辑，通过重新分配的方式
                     return expandCumulation(alloc, cumulation, in);
                 }
+                // 将in中的数据累积（复制）到 cumulation 中，并返回累积的数据
                 cumulation.writeBytes(in, in.readerIndex(), required);
                 in.readerIndex(in.writerIndex());
                 return cumulation;
@@ -117,6 +124,11 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
      * Cumulate {@link ByteBuf}s by add them to a {@link CompositeByteBuf} and so do no memory copy whenever possible.
      * Be aware that {@link CompositeByteBuf} use a more complex indexing implementation so depending on your use-case
      * and the decoder implementation this may be slower than just use the {@link #MERGE_CUMULATOR}.
+     * 将{@link ByteBuf}添加到{@link CompositeByteBuf}中来累积{@link ByteBuf}，从而尽可能不进行内存复制。
+     * 请注意，{@link CompositeByteBuf}使用更复杂的索引实现，因此根据您的用例和解码器实现，这可能比仅使用{@link #MERGE_CUMULATOR}慢。
+     * 理论上来讲，内存拷贝的效率是较低的。但是最终由于解码器使用该累积器的细节的不同，其效率并不一定就差，所以Netty默认使用的是内存拷贝的累积器，这样更简单和通用。
+     *
+     * 组合方式实现的累积器。区别于上面的内存拷贝，这里将多个byteBuf组合起来，然后对外提供一个逻辑的视图。
      */
     public static final Cumulator COMPOSITE_CUMULATOR = new Cumulator() {
         @Override
@@ -132,16 +144,20 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
             }
             CompositeByteBuf composite = null;
             try {
+                // 能扩容必须是 CompositeByteBuf，并且不能被共享
                 if (cumulation instanceof CompositeByteBuf && cumulation.refCnt() == 1) {
                     composite = (CompositeByteBuf) cumulation;
                     // Writer index must equal capacity if we are going to "write"
                     // new components to the end
+                    // 这里还是一个扩容的逻辑
                     if (composite.writerIndex() != composite.capacity()) {
                         composite.capacity(composite.writerIndex());
                     }
                 } else {
+                    // 如果 CompositeByteBuf 还未被创建的话，这里就创建，将之前累积的数据添加到 CompositeByteBuf
                     composite = alloc.compositeBuffer(Integer.MAX_VALUE).addFlattenedComponents(true, cumulation);
                 }
+                // 累积输入的 ByteBuf 到了累积数据中。
                 composite.addFlattenedComponents(true, in);
                 in = null;
                 return composite;
@@ -284,7 +300,9 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
             selfFiredChannelRead = true;
             CodecOutputList out = CodecOutputList.newInstance();
             try {
+                // first表示第一笔数据，cumulation是一个ByteBuf, 用于保存累积的未解码的数据
                 first = cumulation == null;
+                // 如果是第一笔数据，直接赋值给 cumulation ，否则的话，追加到 cumulation 中。
                 cumulation = cumulator.cumulate(ctx.alloc(),
                         first ? Unpooled.EMPTY_BUFFER : cumulation, (ByteBuf) msg);
                 callDecode(ctx, cumulation, out);
@@ -447,10 +465,12 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
      */
     protected void callDecode(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
         try {
+            // in 参数就是数据累积器中的数据
             while (in.isReadable()) {
                 final int outSize = out.size();
 
                 if (outSize > 0) {
+                    // 1、第一次进来，outSize肯定是0，所以不在走这个分支
                     fireChannelRead(ctx, out, outSize);
                     out.clear();
 
@@ -465,6 +485,7 @@ public abstract class ByteToMessageDecoder extends ChannelInboundHandlerAdapter 
                 }
 
                 int oldInputLength = in.readableBytes();
+                // 2、decode进行的过程中，是不能handler remove操作的，只有decode完成之后才能清理数据，所以下面使用了一个这么长的名字
                 decodeRemovalReentryProtection(ctx, in, out);
 
                 // Check if this handler was removed before continuing the loop.

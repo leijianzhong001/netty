@@ -166,16 +166,21 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
 
     protected abstract ByteBuffer newInternalNioBuffer(T memory);
 
+    /**
+     * 将ByteBuf对象归还到池中，pipeline中的tail节点会调用。
+     */
     @Override
     protected final void deallocate() {
         if (handle >= 0) {
             final long handle = this.handle;
             this.handle = -1;
             memory = null;
+            // 释放当前ByteBuf对象占用的内存
             chunk.arena.free(chunk, tmpNioBuf, handle, maxLength, cache);
             tmpNioBuf = null;
             chunk = null;
             cache = null;
+            // 归还
             this.recyclerHandle.unguardedRecycle(this);
         }
     }
@@ -251,6 +256,8 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
     @Override
     public final int setBytes(int index, ScatteringByteChannel in, int length) throws IOException {
         try {
+            // 读取数据本质：sun.nio.ch.SocketChannelImpl#read(java.nio.ByteBuffer)
+            // internalNioBuffer 方法用户实际的操作ByteBuf中java原生的ByteBuffer
             return in.read(internalNioBuffer(index, length));
         } catch (ClosedChannelException ignored) {
             return -1;

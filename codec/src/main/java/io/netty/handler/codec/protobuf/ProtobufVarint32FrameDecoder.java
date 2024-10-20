@@ -41,6 +41,7 @@ import java.util.List;
  * @see CodedInputByteBufferNano
  */
 public class ProtobufVarint32FrameDecoder extends ByteToMessageDecoder {
+    // Varint = 长度字段的长度是可变的： 越少的字节数使用的长度字段占用越小
 
     // TODO maxFrameLength + safe skip + fail-fast option
     //      (just like LengthFieldBasedFrameDecoder)

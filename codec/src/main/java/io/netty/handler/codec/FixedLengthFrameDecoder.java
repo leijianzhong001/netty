@@ -70,9 +70,12 @@ public class FixedLengthFrameDecoder extends ByteToMessageDecoder {
      */
     protected Object decode(
             @SuppressWarnings("UnusedParameters") ChannelHandlerContext ctx, ByteBuf in) throws Exception {
+        // 参数in还是我们收集到数据累积器中的数据。
+        // 这里判断当前累积器收集到的数据是否达到了当前定长解码器指定的长度，如果达到这个长度，就执行一次解码
         if (in.readableBytes() < frameLength) {
             return null;
         } else {
+            // 返回一次指定长度的数据
             return in.readRetainedSlice(frameLength);
         }
     }

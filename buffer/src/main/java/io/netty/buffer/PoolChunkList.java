@@ -27,12 +27,28 @@ import static java.lang.Math.*;
 
 import java.nio.ByteBuffer;
 
+/**
+ * PoolChunkList——对PoolChunk的管理
+ *
+ * PoolChunkList内部有一个PoolChunk组成的链表。通常一个PoolChunkList中的所有PoolChunk使用率(已分配内存/ChunkSize)都在相同的范围内。
+ *
+ * 每个PoolChunkList有自己的最小使用率或者最大使用率的范围，PoolChunkList与PoolChunkList之间又会形成链表，并且使用率范围小的PoolChunkList会在链表中更加靠前。
+ *
+ * 而随着PoolChunk的内存分配和使用，其使用率发生变化后，PoolChunk会在PoolChunkList的链表中，前后调整，移动到合适范围的PoolChunkList内。
+ *
+ * 这样做的好处是，使用率的小的PoolChunk可以先被用于内存分配，从而维持PoolChunk的利用率都在一个较高的水平，避免内存浪费。
+ */
 final class PoolChunkList<T> implements PoolChunkListMetric {
     private static final Iterator<PoolChunkMetric> EMPTY_METRICS = Collections.<PoolChunkMetric>emptyList().iterator();
     private final PoolArena<T> arena;
+    // PoolChunkList会和其他PoolChunkList形成一个双向链表，q000和qInit除外
     private final PoolChunkList<T> nextList;
+    // 标识当前PoolChunkList中的PoolChunk使用率范围，minUsage和maxUsage之间的PoolChunkList的使用率范围是[minUsage, maxUsage)
     private final int minUsage;
     private final int maxUsage;
+    // 一个PoolChunk所对应的最高可分配的内存大小，根据minUsage和chunkSize计算得到改值。
+    // 例如：如果一个PoolChunkList的minUsage=75, 计算公式为：chunkSize * (100 - minUsage) / 100 = 4194304 * (100 - 75) / 100 = 1048576
+    // 表示在075这个PoolChunkList中，一个PoolChunk最多可以分配1048576个字节的内存。
     private final int maxCapacity;
     private PoolChunk<T> head;
     private final int freeMinThreshold;
@@ -96,16 +112,22 @@ final class PoolChunkList<T> implements PoolChunkListMetric {
         this.prevList = prevList;
     }
 
+    // 从当前PoolChunkList中分配PooledByteBuf对象
     boolean allocate(PooledByteBuf<T> buf, int reqCapacity, int sizeIdx, PoolThreadCache threadCache) {
+        // 从 SizeClasses 中得到请求的内存大小
         int normCapacity = arena.sizeIdx2size(sizeIdx);
         if (normCapacity > maxCapacity) {
             // Either this PoolChunkList is empty or the requested capacity is larger then the capacity which can
             // be handled by the PoolChunks that are contained in this PoolChunkList.
+            // 所有的PoolChunk都无法满足请求的内存大小，尝试从下一个PoolChunkList中分配内存
             return false;
         }
 
+        // 遍历当前PoolChunkList中的所有PoolChunk，如果能找到一个合适的PoolChunk，则分配内存成功返回True, 否则返回False
         for (PoolChunk<T> cur = head; cur != null; cur = cur.next) {
+            // 调用PoolChunk的allocate方法分配内存，核心的内存分配是在 PoolChunk 完成的
             if (cur.allocate(buf, reqCapacity, sizeIdx, threadCache)) {
+                // 当前PoolChunk的使用率超过了maxUsage，将当前PoolChunk移动到下一个PoolChunkList中
                 if (cur.freeBytes <= freeMinThreshold) {
                     remove(cur);
                     nextList.add(cur);
@@ -116,8 +138,11 @@ final class PoolChunkList<T> implements PoolChunkListMetric {
         return false;
     }
 
+    // 释放指定的PooledByteBuf到PoolChunk对象中
     boolean free(PoolChunk<T> chunk, long handle, int normCapacity, ByteBuffer nioBuffer) {
+        // 调用 PoolChunk 的free方法释放内存
         chunk.free(handle, normCapacity, nioBuffer);
+        // 如果当前 PoolChunk 的使用率低于 minUsage，将当前 PoolChunk 移动到上一个 PoolChunkList 中
         if (chunk.freeBytes > freeMaxThreshold) {
             remove(chunk);
             // Move the PoolChunk down the PoolChunkList linked-list.

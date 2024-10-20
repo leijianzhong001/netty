@@ -174,6 +174,7 @@ public final class PlatformDependent {
             }
         }
         logger.debug("-Dio.netty.maxDirectMemory: {} bytes", maxDirectMemory);
+        // 直接内存大小，优先取io.netty.maxDirectMemory属性值，如果没有，则取当前jvm的直接内存大小， 若未指定直接内存大小， 则直接内存默认与java堆最大值一样。
         DIRECT_MEMORY_LIMIT = maxDirectMemory >= 1 ? maxDirectMemory : MAX_DIRECT_MEMORY;
 
         int tryAllocateUninitializedArray =
@@ -196,6 +197,9 @@ public final class PlatformDependent {
             CLEANER = NOOP;
         }
 
+        // 使用堆外内存有两个条件：
+        //      1、有cleaner方法去释放堆外内存
+        //      2、io.netty.noPreferDirect 设置为false
         // We should always prefer direct buffers by default if we can use a Cleaner to release direct buffers.
         DIRECT_BUFFER_PREFERRED = CLEANER != NOOP
                                   && !SystemPropertyUtil.getBoolean("io.netty.noPreferDirect", false);
@@ -477,6 +481,8 @@ public final class PlatformDependent {
      * Creates a new fastest {@link LongCounter} implementation for the current platform.
      */
     public static LongCounter newLongCounter() {
+        //- `AtomicLong`是多个线程针对单个热点值value进行原子操作，所以**多线程下性能较差，但是精度高**。注意这里的精度不是指最终的结果，而是指在高并发条件下实时获取结果的精度
+        //- `LongAdder`是每个线程拥有自己的槽，各个线程一般只对自己槽中的那个值进行CAS操作，减少了CAS碰撞的几率，高并发性能很好。但作为代价，**空间占用较高，且实时获取结果精度较差**
         if (javaVersion() >= 8) {
             return new LongAdderCounter();
         } else {

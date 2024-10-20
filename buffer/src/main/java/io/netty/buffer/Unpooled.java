@@ -69,6 +69,10 @@ import java.util.Arrays;
  * between the original data and the copied buffer.  Various copy methods are
  * provided and their name is all {@code copiedBuffer()}.  It is also convenient
  * to use this operation to merge multiple buffers into one buffer.
+ *
+ * Unpooled 可以方便创建一个非池化的 ByteBuf 实例，可以把它看成是一个工具类。内部持有一个 UnpooledByteBufAllocator 对象用来分配内存。
+ * Netty 的零拷贝思想之一就是创建视图方式实现。我只需要管理独立的指针，而不需要把底层数据复制一遍，减少内存副本的数量。因此可通过包装方式创建一个视图。
+ * 但注意，包装对象修改底层数据也是对源 ByteBuf 对象可见。如果你想避免这种情况发生，可通过拷贝实现。
  */
 public final class Unpooled {
 

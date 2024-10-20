@@ -2380,6 +2380,7 @@ public abstract class ByteBuf implements ReferenceCounted, Comparable<ByteBuf>, 
 
     /**
      * Returns the low-level memory address that point to the first byte of ths backing data.
+     * 指向对应chunk第一个字节的内存地址？
      *
      * @throws UnsupportedOperationException
      *         if this buffer does not support accessing the low-level memory address

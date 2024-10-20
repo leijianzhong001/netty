@@ -108,6 +108,8 @@ public abstract class Recycler<T> {
     private final FastThreadLocal<LocalPool<T>> threadLocal = new FastThreadLocal<LocalPool<T>>() {
         @Override
         protected LocalPool<T> initialValue() {
+            // ThreadLocal使用initialValue方法来返回一个初始值，这个初始值是每个线程独有的
+            // 这里的这个初始值是一个LocalPool对象。
             return new LocalPool<T>(maxCapacityPerThread, interval, chunkSize);
         }
 
@@ -175,20 +177,27 @@ public abstract class Recycler<T> {
     @SuppressWarnings("unchecked")
     public final T get() {
         if (maxCapacityPerThread == 0) {
+            // 这种情况下表明不开启池化
             return newObject((Handle<T>) NOOP_HANDLE);
         }
+        // 看一下当前线程有没有之前分配的缓存的ByteBuf, 如果有的话，直接使用
         LocalPool<T> localPool = threadLocal.get();
+        // ByteBuf对象句柄
         DefaultHandle<T> handle = localPool.claim();
         T obj;
         if (handle == null) {
+            // 在当前线程没有之前分配的被缓存的ByteBuf的情况下，创建一个新的ByteBuf对象
             handle = localPool.newHandle();
             if (handle != null) {
+                // 默认情况下，这里创建的就是PooledUnsafeDirectByteBuf对象。
+                // 因为newObject方法调用的是当前Recycler对象的重写过的newObject方法，该方法实际上调用了RECYCLER对象的 newObject 方法创建dPooledUnsafeDirectByteBuf
                 obj = newObject(handle);
                 handle.set(obj);
             } else {
                 obj = newObject((Handle<T>) NOOP_HANDLE);
             }
         } else {
+            // 如果当前线程有之前分配的被缓存的ByteBuf的话，直接获取这个ByteBuf对象
             obj = handle.get();
         }
 
@@ -262,6 +271,7 @@ public abstract class Recycler<T> {
             if (object != value) {
                 throw new IllegalArgumentException("object does not belong to handle");
             }
+            // 将object这个对象归还到 localPool 中
             localPool.release(this, false);
         }
 
@@ -297,6 +307,7 @@ public abstract class Recycler<T> {
     private static final class LocalPool<T> implements MessagePassingQueue.Consumer<DefaultHandle<T>> {
         private final int ratioInterval;
         private final int chunkSize;
+        // 线程归还的对象都会被放入到这个队列中
         private final ArrayDeque<DefaultHandle<T>> batch;
         private volatile Thread owner;
         private volatile MessagePassingQueue<DefaultHandle<T>> pooledHandles;
@@ -310,21 +321,26 @@ public abstract class Recycler<T> {
             Thread currentThread = Thread.currentThread();
             owner = !BATCH_FAST_TL_ONLY || currentThread instanceof FastThreadLocalThread ? currentThread : null;
             if (BLOCKING_POOL) {
+                // 以一个多生产者单消费者队列为基础的阻塞队列
                 pooledHandles = new BlockingMessageQueue<DefaultHandle<T>>(maxCapacity);
             } else {
+                // 以一个多生产者单消费者队列为基础的非阻塞队列
                 pooledHandles = (MessagePassingQueue<DefaultHandle<T>>) newMpscQueue(chunkSize, maxCapacity);
             }
             ratioCounter = ratioInterval; // Start at interval so the first one will be recycled.
         }
 
         DefaultHandle<T> claim() {
+            // pooledHandles 以一个多生产者单消费者队列为基础的非阻塞队列，这个对象是是LocalPool每个线程独有的
             MessagePassingQueue<DefaultHandle<T>> handles = pooledHandles;
             if (handles == null) {
                 return null;
             }
             if (batch.isEmpty()) {
+                // 如果batch队列为空，那么就从pooledHandles队列中取出chunkSize个对象放入到batch队列中
                 handles.drain(this, chunkSize);
             }
+            // 分配对象时，也是从batch队列中取出一个对象
             DefaultHandle<T> handle = batch.pollFirst();
             if (null != handle) {
                 handle.toClaimed();
@@ -340,6 +356,7 @@ public abstract class Recycler<T> {
             }
             Thread owner = this.owner;
             if (owner != null && Thread.currentThread() == owner && batch.size() < chunkSize) {
+                // 将对象归还到batch队列中
                 accept(handle);
             } else if (owner != null && isTerminated(owner)) {
                 this.owner = null;

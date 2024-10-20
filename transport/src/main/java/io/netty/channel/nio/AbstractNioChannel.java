@@ -80,7 +80,9 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         // 1、特别注意这个方法。会设置channelId和pipeline
         super(parent);
         this.ch = ch;
-        // 2、设置感兴趣的事件，如 SelectionKey.OP_ACCEPT
+        // 2、设置感兴趣的事件。
+        // 如果是ServerSocketChannel，这个值是 SelectionKey.OP_ACCEPT
+        // 如果是 SocketChannel, 这个值是 SelectionKey.OP_READ
         this.readInterestOp = readInterestOp;
         try {
             // 3、设置当前channel非阻塞,这意味着例如 ServerSocketChannel.accept() 方法是非阻塞的
@@ -380,8 +382,10 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         boolean selected = false;
         for (;;) {
             try {
-                // 这里面就是`java Nio`中原生的注册通道到选择器上的操作了
-                // **注意这里注册的时候注册的感兴趣的事件居然是`0`**， 正常来说，将通道创建完成之后，绑定到选择器上时感兴趣的事件应该是`ACCEPT`事件，即`16`。所以这里的这个值在真正接收请求的时候会被更改。
+                // 1、这里面就是`java Nio`中原生的注册通道到选择器上的操作了。 eventLoop().unwrappedSelector() 对象就是我们前面创建EventLoop对象时跟着创建的Selector对象
+                // 2、注意这里注册的时候注册的感兴趣的事件居然是`0`， 正常来说，将通道创建完成之后，绑定到选择器上时感兴趣的事件应该是`ACCEPT`事件，即`16`。 这是因为此时还没有调用 serverSocketChannel.bind 方法绑定端口，也就是还没有激活,还不能接受事件。所以这里的这个值在真正接收请求的时候会被更改。
+                // 3、注意这里的这个this参数，将当前channel作为附加对象附加到SelectionKey上。这样当EventLoop中的Selector组件select到事件之后，就可以直接拿到这个NioServerSocketChannel对象作处理。SelectionKey::channel可以很简单的获取到当前key关联的channel,但是这个channel是原生的，所以这里需要将Netty封装的NioServerSocketChannel作为附加对象。
+                // 4、附加对象是跟SelectionKey绑定的，而不是跟 channel 绑定的. 即一个通道可能在其读事件上绑定一个对象，在其写事件上又绑定一个对象
                 selectionKey = javaChannel().register(eventLoop().unwrappedSelector(), 0, this);
                 return;
             } catch (CancelledKeyException e) {
@@ -404,6 +408,9 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         eventLoop().cancel(selectionKey());
     }
 
+    /**
+     * 无论是ServerSocketChannel的OP_ACCEPT, 还是SokcetChannel的OP_READ， 都是实际走这进行注册的。
+     */
     @Override
     protected void doBeginRead() throws Exception {
         // Channel.read() or ChannelHandlerContext.read() was called
@@ -413,9 +420,11 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         }
 
         readPending = true;
-
+        // 获取正在当前监听的事件
         final int interestOps = selectionKey.interestOps();
+        // readInterestOp的值是在NioServerSocketChannel/NioSocketChannel被创建时设置的
         if ((interestOps & readInterestOp) == 0) {
+            // 如果没有监听 accept和读事件，那么开始监听。ServerSocketChannel和SocketChannel的读事件都是通过这里注册的。 区别之处在于，ServerSocketChannel这里对应的 readInterestOp 是16， 即OP_ACCEPT, 而SocketChannel这里对应的readInterestOp是1，即OP_READ
             selectionKey.interestOps(interestOps | readInterestOp);
         }
     }

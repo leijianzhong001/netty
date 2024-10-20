@@ -272,22 +272,25 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
     }
 
     private ChannelFuture doBind(final SocketAddress localAddress) {
-        // 1、该方法的主要作用是创建一个`NioServerSocketChannel`并初始化 TCP 连接的相关参数
+        // 1、该方法的主要作用是创建一个`NioServerSocketChannel`并初始化 TCP 连接的相关参数；
+        // 2、将创建的NioServerSocketChannel注册到Selector上
         final ChannelFuture regFuture = initAndRegister();
         final Channel channel = regFuture.channel();
         if (regFuture.cause() != null) {
             return regFuture;
         }
 
+        // 3、走到这里时，不能肯定register操作是否完成，因为它是个异步的，register操作服务启动时总是实际上是总是放到NioEventLoop中的任务队列去执行了。
         if (regFuture.isDone()) {
             // At this point we know that the registration was complete and successful.
             ChannelPromise promise = channel.newPromise();
-            // 2、`dobind0`方法的作用是将当前 `ServerSocketChannel` 绑定到本地套接字上
+            // 4、如果注册已经完成， `dobind0`方法将当前 `ServerSocketChannel` 绑定到本地套接字上。实际上是对应原生NIO操作中的 serverSocketChannel.socket().bind(port) 操作
             doBind0(regFuture, channel, localAddress, promise);
             return promise;
         } else {
             // Registration future is almost always fulfilled already, but just in case it's not.
             final PendingRegistrationPromise promise = new PendingRegistrationPromise(channel);
+            // 5、但是如果走到这里时，register操作尚未完成，那么这里就注册一个监听器，在注册操作完成的时，再触发 doBind0 方法绑定到端口上
             regFuture.addListener(new ChannelFutureListener() {
                 @Override
                 public void operationComplete(ChannelFuture future) throws Exception {
@@ -300,7 +303,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
                         // Registration was successful, so set the correct executor to use.
                         // See https://github.com/netty/netty/issues/2586
                         promise.registered();
-
+                        // 将当前 `ServerSocketChannel` 绑定到本地套接字上
                         doBind0(regFuture, channel, localAddress, promise);
                     }
                 }
@@ -381,7 +384,7 @@ public abstract class AbstractBootstrap<B extends AbstractBootstrap<B, C>, C ext
             @Override
             public void run() {
                 if (regFuture.isSuccess()) {
-                    // NioServerSocketChannel的bind实现
+                    // AbstractChannel 的bind实现
                     channel.bind(localAddress, promise).addListener(ChannelFutureListener.CLOSE_ON_FAILURE);
                 } else {
                     promise.setFailure(regFuture.cause());
