@@ -171,6 +171,7 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
      */
     @Override
     protected final void deallocate() {
+        // 判断句柄变量是否>=0
         if (handle >= 0) {
             final long handle = this.handle;
             this.handle = -1;
@@ -180,7 +181,7 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
             tmpNioBuf = null;
             chunk = null;
             cache = null;
-            // 归还
+            // 回收「ByteBuf」对象
             this.recyclerHandle.unguardedRecycle(this);
         }
     }

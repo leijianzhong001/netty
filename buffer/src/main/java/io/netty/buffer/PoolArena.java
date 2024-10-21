@@ -293,6 +293,10 @@ abstract class PoolArena<T> extends SizeClasses implements PoolArenaMetric {
     private void allocateNormal(PooledByteBuf<T> buf, int reqCapacity, int sizeIdx, PoolThreadCache threadCache) {
         assert lock.isHeldByCurrentThread();
         // #1 尝试从「PoolChunkList」链表中分配（寻找现有的「PoolChunk」进行内存分配）
+        // 当 Normal 进行内存分配，会按 q050->q025->q000->qInit->q075 顺序进行分配，从 q050 开始分配是因为这是一个折中的分配方案，
+        // 如果从 q000 分配的话，会有大部分的 PoolChunk 面临频繁的创建和销毁，造成内存分配的性能降低。如果从 q050 开始，会使 PoolChunk 的使用率范围保持在中间水平，
+        // 既降低了 PoolChunkList 被回收的概率，也兼顾了性能。如果分配成功，则计算该 PoolChunk 的使用率，使用率超过了 PoolChunkList 的上限时，移动到下一个 PoolChunkList 链表中。
+        // 如果分配失败，则会创建一个新的内存块进行内存，如果分配成功添加到 qInit 链表。
         if (q050.allocate(buf, reqCapacity, sizeIdx, threadCache) ||
             q025.allocate(buf, reqCapacity, sizeIdx, threadCache) ||
             q000.allocate(buf, reqCapacity, sizeIdx, threadCache) ||
@@ -326,17 +330,28 @@ abstract class PoolArena<T> extends SizeClasses implements PoolArenaMetric {
     void free(PoolChunk<T> chunk, ByteBuffer nioBuffer, long handle, int normCapacity, PoolThreadCache cache) {
         chunk.decrementPinnedMemory(normCapacity);
         if (chunk.unpooled) {
+            // #1 待回收「ByteBuf」所属的「Chunk」为非池化，直接销毁
+            // 根据底层实现方式不同采取不同销毁策略。
+            // 如果是「ByteBuf」对象，根据有无「Cleaner」分类，采取不同的销毁方法
+            // 如果是「byte[]」，不做任何处理，JVM GC 会回收这部分内存
             int size = chunk.chunkSize();
             destroyChunk(chunk);
             activeBytesHuge.add(-size);
             deallocationsHuge.increment();
         } else {
+            // #2 对于池化的「Chunk」
             SizeClass sizeClass = sizeClass(handle);
             if (cache != null && cache.add(this, chunk, nioBuffer, handle, normCapacity, sizeClass)) {
                 // cached so not free it.
+                // 尝试添加到本地缓存，至于如何添加，会在另一章节详细说明
+                // 内部会使用「MermoryRegionCache」缓存内存信息，比如句柄值，容量大小、属于哪个「chunk」等
+                // 待后面这个线程申请等容量大小时就可以从本地线程中分配
+                // 那有人会说，有借不还么?那是不可能的，PoolThreadCache会维持添加计数，达到某个阈值则会触发
+                // 回收动作，并不会造成内存泄漏
                 return;
             }
 
+            // 本地缓存添加失败，那就交给由「PoolArena」完成释放
             freeChunk(chunk, handle, normCapacity, sizeClass, nioBuffer, false);
         }
     }
@@ -352,6 +367,8 @@ abstract class PoolArena<T> extends SizeClasses implements PoolArenaMetric {
         try {
             // We only call this if freeChunk is not called because of the PoolThreadCache finalizer as otherwise this
             // may fail due lazy class-loading in for example tomcat.
+            // 这里应对懒加载所做出的判断。比如「Tomcat」卸载某个应用时，会把对应的「ClassLoader」卸载掉，
+            // 但对于线程回收finalizer而言可能需要这个类加载器的类信息，因此这里判断一下
             if (!finalizer) {
                 switch (sizeClass) {
                     case Normal:
@@ -364,6 +381,7 @@ abstract class PoolArena<T> extends SizeClasses implements PoolArenaMetric {
                         throw new Error();
                 }
             }
+            // 调用PoolChunkList#free方法归还内存
             destroyChunk = !chunk.parent.free(chunk, handle, normCapacity, nioBuffer);
         } finally {
             unlock();

@@ -103,11 +103,15 @@ public abstract class AbstractReferenceCountedByteBuf extends AbstractByteBuf {
 
     @Override
     public boolean release(int decrement) {
+        // #1 首先通过 updater 更新「refCnt」的值，refCnt=refCnt-2
+        // 如果旧值「refCnt」==2，则update.release(this)会返回true，表示当前「ByteBuf」引用计数为0了， 是时候需要释放了
+        // #2 释放内存
         return handleRelease(updater.release(this, decrement));
     }
 
     private boolean handleRelease(boolean result) {
         if (result) {
+            // 释放内存
             deallocate();
         }
         return result;
