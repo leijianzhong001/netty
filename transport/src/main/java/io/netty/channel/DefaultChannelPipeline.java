@@ -925,6 +925,7 @@ public class DefaultChannelPipeline implements ChannelPipeline {
 
     @Override
     public final ChannelPipeline fireChannelRead(Object msg) {
+        // 从头结点开始触发所有入站handle的`channelRead`方法
         AbstractChannelHandlerContext.invokeChannelRead(head, msg);
         return this;
     }

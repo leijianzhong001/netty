@@ -170,6 +170,7 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
     @Override
     public Future<?> shutdownGracefully(long quietPeriod, long timeout, TimeUnit unit) {
         for (EventExecutor l: children) {
+            // 逐个关闭所有的NioEventLoop对象
             l.shutdownGracefully(quietPeriod, timeout, unit);
         }
         return terminationFuture();

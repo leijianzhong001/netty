@@ -378,6 +378,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
         } while (!fetchedAll); // keep on processing until we fetched all scheduled tasks.
 
         if (ranAtLeastOne) {
+            // 记录最后一次执行任务的时间，用于在优雅关闭时使用
             lastExecutionTime = getCurrentTimeNanos();
         }
         afterRunningAllTasks();
@@ -646,6 +647,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
                 switch (oldState) {
                     case ST_NOT_STARTED:
                     case ST_STARTED:
+                        // 如果是未启动或者已经启动，那么就设置为ST_SHUTTING_DOWN正在关闭
                         newState = ST_SHUTTING_DOWN;
                         break;
                     default:
@@ -653,6 +655,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
                         wakeup = false;
                 }
             }
+            // 1、修改state状态，这个状态在EventLoop循环中会被检查，一旦发现该标识位被设置为关闭了，就开始关闭
             if (STATE_UPDATER.compareAndSet(this, oldState, newState)) {
                 break;
             }
@@ -754,12 +757,15 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
             throw new IllegalStateException("must be invoked from an event loop");
         }
 
+        // 1、取消所有的定时 task
         cancelScheduledTasks();
 
         if (gracefulShutdownStartTime == 0) {
+            // 算一下优雅关闭的开始时间, 如果为0，默认给系统启动经历的时间
             gracefulShutdownStartTime = getCurrentTimeNanos();
         }
 
+        // 如果存在task/hook, 执行他们，并且不让关闭，因为静默期又有任务执行了。
         if (runAllTasks() || runShutdownHooks()) {
             if (isShutdown()) {
                 // Executor shut down - no new tasks anymore.
@@ -773,15 +779,20 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
                 return true;
             }
             taskQueue.offer(WAKEUP_TASK);
+            // 返回false，表示还不能关闭EventLoop
             return false;
         }
 
+        // 走到这里，说明没有任务了，可以关闭了
+        // 取出当前时间，注意这是一个相对时间，即系统启动到现在的时间，而不是系统时间，但相对时间可以和相对时间进行比较，比如前面的gracefulShutdownStartTime
         final long nanoTime = getCurrentTimeNanos();
 
         if (isShutdown() || nanoTime - gracefulShutdownStartTime > gracefulShutdownTimeout) {
+            // 如果已经关闭，或者已经超过了优雅关闭的最大时间，那么就关闭
             return true;
         }
 
+        // 如果静默期间执行了任务，那就还不关闭，等待100ms后再检查一下
         if (nanoTime - lastExecutionTime <= gracefulShutdownQuietPeriod) {
             // Check if any tasks were added to the queue every 100ms.
             // TODO: Change the behavior of takeTask() so that it returns on timeout.
@@ -797,6 +808,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
 
         // No tasks were added for last quiet period - hopefully safe to shut down.
         // (Hopefully because we really cannot make a guarantee that there will be no execute() calls by a user.)
+        // 如果静默期内没有任务被执行过，那么就可以关闭了
         return true;
     }
 
@@ -1002,6 +1014,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
                 try {
                     // 2、这里就是真实的无限循环Selector逻辑
                     SingleThreadEventExecutor.this.run();
+                    // 一旦走到这里，说明EventLoop被关闭了
                     success = true;
                 } catch (Throwable t) {
                     logger.warn("Unexpected exception from an event executor: ", t);
@@ -1048,6 +1061,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
                         confirmShutdown();
                     } finally {
                         try {
+                            // 3、走到这里，说明EventLoop被关闭了，所以这里做了一件至关重要的事情，关闭Selector
                             cleanup();
                         } finally {
                             // Lets remove all FastThreadLocals for the Thread as we are about to terminate and notify

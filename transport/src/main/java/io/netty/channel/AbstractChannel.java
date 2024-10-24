@@ -740,7 +740,9 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
             final boolean wasActive = isActive();
             final ChannelOutboundBuffer outboundBuffer = this.outboundBuffer;
+            // 1、将当前channel的outboundBuffer设置为null，这样就不允许发送任何消息了
             this.outboundBuffer = null; // Disallow adding any messages and flushes to outboundBuffer.
+            // 通过closeExecutor处理逗留式关闭channel的场景，一般不常用
             Executor closeExecutor = prepareToClose();
             if (closeExecutor != null) {
                 closeExecutor.execute(new Runnable() {
@@ -768,11 +770,15 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             } else {
                 try {
                     // Close the channel and fail the queued messages in all cases.
+                    // 2、调用doClose0方法关闭channel
                     doClose0(promise);
                 } finally {
                     if (outboundBuffer != null) {
                         // Fail all the queued messages.
+                        // Fail all the queued messages
+                        // 失败掉当前channel 上的所有消息
                         outboundBuffer.failFlushed(cause, notify);
+                        // 关闭当前channel的outboundBuffer
                         outboundBuffer.close(closeCause);
                     }
                 }
@@ -784,6 +790,9 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                         }
                     });
                 } else {
+                    // 1、如果需要，取消当前channel注册在selector上的所有SelectionKey
+                    // 2、触发channelInactive事件，对应的handler方法是channelInactive
+                    // 3、触发channelUnregistered事件，对应的handler方法是channelUnregistered
                     fireChannelInactiveAndDeregister(wasActive);
                 }
             }
@@ -850,6 +859,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                         logger.warn("Unexpected exception occurred while deregistering a channel.", t);
                     } finally {
                         if (fireChannelInactive) {
+                            // 1、触发channelInactive事件，对应的handler方法是channelInactive
                             pipeline.fireChannelInactive();
                         }
                         // Some transports like local and AIO does not allow the deregistration of
@@ -858,6 +868,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                         // if it was registered.
                         if (registered) {
                             registered = false;
+                            // 2、触发channelUnregistered事件，对应的handler方法是channelUnregistered
                             pipeline.fireChannelUnregistered();
                         }
                         safeSetSuccess(promise);
@@ -887,7 +898,12 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
         public final void write(Object msg, ChannelPromise promise) {
             assertEventLoop();
 
+            // ChannelOutboundBuffer 是一个内部的数据结构，用于存储要出站的写请求。该对象在channel创建的时候就被分配了
+            // ChannelOutboundBuffer使用一个链表来存储待发送或者已发送的请求，所有请求都会被包装成一个Entry对象，Entry内部有指向下一个节点的指针
+            // 最终ChannelOutboundBuffer中的结构是类似这样的：
+            // Entry(flushedEntry) --> ... Entry(unflushedEntry) --> ... Entry(tailEntry)
             ChannelOutboundBuffer outboundBuffer = this.outboundBuffer;
+            // 下面的判断，是判断channel是否已经被关闭了。
             if (outboundBuffer == null) {
                 try {
                     // release message now to prevent resource-leak
@@ -906,6 +922,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             int size;
             try {
                 msg = filterOutboundMessage(msg);
+                // 算一下msg的大小
                 size = pipeline.estimatorHandle().size(msg);
                 if (size < 0) {
                     size = 0;
@@ -918,20 +935,22 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 }
                 return;
             }
-
+            // 调用内部数据结构的addMessage方法将待发送的消息追加到队尾
             outboundBuffer.addMessage(msg, size, promise);
         }
 
         @Override
         public final void flush() {
             assertEventLoop();
-
+            // 1、还是先找到当前channel用于存储待发送数据的ChannelOutboundBuffer对象
             ChannelOutboundBuffer outboundBuffer = this.outboundBuffer;
             if (outboundBuffer == null) {
                 return;
             }
 
+            // 2、调用ChannelOutboundBuffer的addFlush方法，该操作只是递增flushed标志，以表明有多少Entry需要被flush
             outboundBuffer.addFlush();
+            // 3、真实的将数据flush出去
             flush0();
         }
 
@@ -947,6 +966,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
                 return;
             }
 
+            // 1、标记当前channel正在进行flush
             inFlush0 = true;
 
             // Mark all pending write requests as failure if the channel is inactive.
@@ -968,10 +988,12 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
             }
 
             try {
+                // 将 outboundBuffer 中的数据写出到对端
                 doWrite(outboundBuffer);
             } catch (Throwable t) {
                 handleWriteError(t);
             } finally {
+                // 2、将flushed标志设置为false，表示当前channel不在进行flush操作
                 inFlush0 = false;
             }
         }

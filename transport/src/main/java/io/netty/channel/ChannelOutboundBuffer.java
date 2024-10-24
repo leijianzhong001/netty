@@ -82,6 +82,7 @@ public final class ChannelOutboundBuffer {
     // The Entry which represents the tail of the buffer
     private Entry tailEntry;
     // The number of flushed entries that are not written yet
+    // 但只有flushed数量的Entry会从flushedEntry中真正的刷出去
     private int flushed;
 
     private int nioBufferCount;
@@ -89,6 +90,11 @@ public final class ChannelOutboundBuffer {
 
     private boolean inFail;
 
+    /**
+     * AtomicLongFieldUpdater相对于AtomicInteger来说，效率不一定会高，但是具有节省内存和向前兼容更好的问题。
+     * `AtomicIntegerFieldUpdater`一般是`static final`修饰的。也就是说即使创建了`100`个对象AtomicIntegerField也只存在一个不会占用对象的内存，但是`AtomicInteger`会创建多个`AtomicInteger`对象，占用的内存比`AtomicIntegerFieldUpdater`大。ChannelOutboundBuffer对象显而易见会在一个Netty应用中创建很多。
+     *  前面讲的两个`AtomicInteger`和`AtomicIntegerArray`，这两个都是在最初设计编码时候就已经考虑到了需要保证原子性。但是往往有很多情况就是，由于需求的更改，原子性需要在后面加入，即**不改动原有业务代码的情况下，让某属性的更新具备原子性**。 没错，`concurrent.atomic`包下`AtomicIntegerFieldUpdater`就是这个作用的。
+     */
     private static final AtomicLongFieldUpdater<ChannelOutboundBuffer> TOTAL_PENDING_SIZE_UPDATER =
             AtomicLongFieldUpdater.newUpdater(ChannelOutboundBuffer.class, "totalPendingSize");
 
@@ -98,6 +104,9 @@ public final class ChannelOutboundBuffer {
     private static final AtomicIntegerFieldUpdater<ChannelOutboundBuffer> UNWRITABLE_UPDATER =
             AtomicIntegerFieldUpdater.newUpdater(ChannelOutboundBuffer.class, "unwritable");
 
+    /**
+     * 标识当前channel是否能够写入数据，当待发送的数据超过高水位线时，通过设置unwritable将channel设置为不可写
+     */
     @SuppressWarnings("UnusedDeclaration")
     private volatile int unwritable;
 
@@ -112,26 +121,33 @@ public final class ChannelOutboundBuffer {
      * the message was written.
      */
     public void addMessage(Object msg, int size, ChannelPromise promise) {
+        // 1、将待发送的消息封装成Entry对象
         Entry entry = Entry.newInstance(msg, size, total(msg), promise);
         if (tailEntry == null) {
             flushedEntry = null;
         } else {
             Entry tail = tailEntry;
+            // 2、将Entry对象追加到队尾
             tail.next = entry;
         }
         tailEntry = entry;
         if (unflushedEntry == null) {
+            // 如果待发送队列中一个数据没有，将unflushedEntry指向新添加的Entry
             unflushedEntry = entry;
         }
 
         // increment pending bytes after adding message to the unflushed arrays.
         // See https://github.com/netty/netty/issues/1619
+        //
         incrementPendingOutboundBytes(entry.pendingSize, false);
     }
 
     /**
      * Add a flush to this {@link ChannelOutboundBuffer}. This means all previous added messages are marked as flushed
      * and so you will be able to handle them.
+     * <p>
+     * 给{@link ChannelOutboundBuffer}添加一个flush。这意味着之前添加的所有消息都被标记为flush，因此你将能够处理它们。
+     * </p>
      */
     public void addFlush() {
         // There is no need to process all entries if there was already a flush before and no new messages
@@ -142,15 +158,19 @@ public final class ChannelOutboundBuffer {
         if (entry != null) {
             if (flushedEntry == null) {
                 // there is no flushedEntry yet, so start with the entry
+                // 注意这个操作，这样就可以让我们直接通过 flushedEntry 就可以找到所有实际要刷出的数据
                 flushedEntry = entry;
             }
             do {
+                // 1、递增flushed, 相当于标记当前Entry已经flushed，这样就可以将此entry在后面的flush0中实际的刷出了
                 flushed ++;
                 if (!entry.promise.setUncancellable()) {
                     // Was cancelled so make sure we free up memory and notify about the freed bytes
                     int pending = entry.cancel();
+                    // 减少待发送数据大小
                     decrementPendingOutboundBytes(pending, false, true);
                 }
+                // 2、将当前元素从unflushedEntry中移除
                 entry = entry.next;
             } while (entry != null);
 
@@ -171,9 +191,11 @@ public final class ChannelOutboundBuffer {
         if (size == 0) {
             return;
         }
-
+        // 递增待发送数据大小
         long newWriteBufferSize = TOTAL_PENDING_SIZE_UPDATER.addAndGet(this, size);
+        // 判断待发送数据的大小是否超过了高水位线
         if (newWriteBufferSize > channel.config().getWriteBufferHighWaterMark()) {
+            // 如果超过了高水位线，将Channel设置为不可写
             setUnwritable(invokeLater);
         }
     }
@@ -273,6 +295,7 @@ public final class ChannelOutboundBuffer {
         ChannelPromise promise = e.promise;
         int size = e.pendingSize;
 
+        // 移除完全写出的entry
         removeEntry(e);
 
         if (!e.cancelled) {
@@ -325,6 +348,7 @@ public final class ChannelOutboundBuffer {
     }
 
     private void removeEntry(Entry e) {
+        // 注意这里，如果Entry写出成功，递减flushed，并将该entry从flushedEntry链表中移除
         if (-- flushed == 0) {
             // processed everything
             flushedEntry = null;
@@ -340,6 +364,7 @@ public final class ChannelOutboundBuffer {
     /**
      * Removes the fully written entries and update the reader index of the partially written entry.
      * This operation assumes all messages in this buffer is {@link ByteBuf}.
+     * 删除完全写入的entries，并更新部分写入项的reader索引。这个操作假定这个缓冲区中的所有消息都是{@link ByteBuf}。
      */
     public void removeBytes(long writtenBytes) {
         for (;;) {
@@ -351,15 +376,20 @@ public final class ChannelOutboundBuffer {
 
             final ByteBuf buf = (ByteBuf) msg;
             final int readerIndex = buf.readerIndex();
+            // buf.writerIndex() - readerIndex 表示当前ByteBuf中可读的字节数
             final int readableBytes = buf.writerIndex() - readerIndex;
 
+            // 1、如果当前ByteBuf中可读的字节数小于等于已经写出的字节数，说明当前ByteBuf已经完全写出去了, 此时移除完全写出的entry
             if (readableBytes <= writtenBytes) {
                 if (writtenBytes != 0) {
+                    // 通知{@link ChannelPromise}当前的写入进度。
                     progress(readableBytes);
                     writtenBytes -= readableBytes;
                 }
+                // 将Entry完整的写出去了，此时移除完全写出的entry
                 remove();
             } else { // readableBytes > writtenBytes
+                // entry尚未完全写出，不移除entry，只更新readerIndex
                 if (writtenBytes != 0) {
                     buf.readerIndex(readerIndex + (int) writtenBytes);
                     progress(writtenBytes);

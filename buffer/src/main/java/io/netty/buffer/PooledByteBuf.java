@@ -261,6 +261,8 @@ abstract class PooledByteBuf<T> extends AbstractReferenceCountedByteBuf {
             // internalNioBuffer 方法用户实际的操作ByteBuf中java原生的ByteBuffer
             return in.read(internalNioBuffer(index, length));
         } catch (ClosedChannelException ignored) {
+            //注意这里，如果读数据的过程中发生什么异常，比如客户端突然stop，那么就会抛出ClosedChannelException异常，这种情况下当做读到了-1处理，而不会抛出异常
+            // 但是这里只会处理ClosedChannelException异常，其他异常还是会抛出，然后由外层的catch处理连接关闭
             return -1;
         }
     }

@@ -407,8 +407,11 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
         }
     }
 
+    // 此方法用于将读事件在pipeline中继续往后传播
     @Override
     public ChannelHandlerContext fireChannelRead(final Object msg) {
+        // 1、findContextInbound标识从当前handler开始，查找下一个可执行的InboundHandler
+        // 2、invokeChannelRead方法用于执行下一个InboundHandler的channelRead方法
         invokeChannelRead(findContextInbound(MASK_CHANNEL_READ), msg);
         return this;
     }
@@ -437,10 +440,13 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
                 final ChannelHandler handler = handler();
                 final DefaultChannelPipeline.HeadContext headContext = pipeline.head;
                 if (handler == headContext) {
+                    // 如果是头结点，则其channelRead方法会调用ctx.fireChannelRead直接往后传播事件
                     headContext.channelRead(this, msg);
                 } else if (handler instanceof ChannelDuplexHandler) {
                     ((ChannelDuplexHandler) handler).channelRead(this, msg);
                 } else {
+                    // 调用当前普通handler的channelRead方法。
+                    // 从这里也可以看出，如果我们自定义的handler没有主动往后面传播事件，则事件会在当前handler中被消费掉，不会往后传播
                     ((ChannelInboundHandler) handler).channelRead(this, msg);
                 }
             } catch (Throwable t) {
@@ -850,17 +856,20 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
 
     @Override
     public ChannelFuture write(Object msg) {
+        // 没有指定回调的情况下，使用默认的promise
         return write(msg, newPromise());
     }
 
     @Override
     public ChannelFuture write(final Object msg, final ChannelPromise promise) {
+        // flush为false则不立即刷出消息到socket
         write(msg, false, promise);
 
         return promise;
     }
 
     void invokeWrite(Object msg, ChannelPromise promise) {
+        // invokeHandler用于检测当前handler是否被添加到pipeline中，如果没有跳过当前handler，在write方法中继续调用下一个handler的write方法
         if (invokeHandler()) {
             invokeWrite0(msg, promise);
         } else {
@@ -876,10 +885,12 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
             final ChannelHandler handler = handler();
             final DefaultChannelPipeline.HeadContext headContext = pipeline.head;
             if (handler == headContext) {
+                // 头结点，说明写出操作已经进行到最后一个handler了，headContext.write 方法会执行真实的写出数据的逻辑
                 headContext.write(this, msg, promise);
             } else if (handler instanceof ChannelDuplexHandler) {
                 ((ChannelDuplexHandler) handler).write(this, msg, promise);
             } else {
+                // 如果不是头结点，则实际调用当前handler的write方法，视情况是否继续传播事件
                 ((ChannelOutboundHandler) handler).write(this, msg, promise);
             }
         } catch (Throwable t) {
@@ -889,6 +900,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
 
     @Override
     public ChannelHandlerContext flush() {
+        // 从当前handler开始，往前找第一个具有flush功能的OutboundHandler,一般就是headContext
         final AbstractChannelHandlerContext next = findContextOutbound(MASK_FLUSH);
         EventExecutor executor = next.executor();
         if (executor.inEventLoop()) {
@@ -906,8 +918,10 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
 
     private void invokeFlush() {
         if (invokeHandler()) {
+            // 如果当前handler已经被添加到pipeline中，则调用当前handler的flush方法。
             invokeFlush0();
         } else {
+            // 否则继续往前找下一个handler
             flush();
         }
     }
@@ -959,12 +973,16 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
             throw e;
         }
 
+        // 1、从当前handler开始，倒着往回找第一个OutboundHandler
         final AbstractChannelHandlerContext next = findContextOutbound(flush ?
                 (MASK_WRITE | MASK_FLUSH) : MASK_WRITE);
+        // 引用计数器用的，用来检测内存泄漏
         final Object m = pipeline.touch(msg, next);
         EventExecutor executor = next.executor();
         if (executor.inEventLoop()) {
+            // 2、从当前handler开始，往回找第一个OutboundHandler，然后调用其invokeWrite方法
             if (flush) {
+                // 判断是否需要立即flush
                 next.invokeWriteAndFlush(m, promise);
             } else {
                 next.invokeWrite(m, promise);
@@ -1051,11 +1069,14 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
         return false;
     }
 
+    // 从当前handler开始，查找下一个需要触发的inbound handler
     private AbstractChannelHandlerContext findContextInbound(int mask) {
+        // 当前 handler
         AbstractChannelHandlerContext ctx = this;
         EventExecutor currentExecutor = executor();
         do {
             ctx = ctx.next;
+            // 判断是否需要跳过当前handler的执行，这里指定了 MASK_ONLY_INBOUND，表示只查找inbound handler
         } while (skipContext(ctx, currentExecutor, mask, MASK_ONLY_INBOUND));
         return ctx;
     }
@@ -1064,7 +1085,9 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
         AbstractChannelHandlerContext ctx = this;
         EventExecutor currentExecutor = executor();
         do {
+            // 注意这里的prev，查找是从当前handler开始往前找的
             ctx = ctx.prev;
+            // 判断是否需要跳过当前handler的执行，这里指定了 MASK_ONLY_OUTBOUND，表示只查找outbound handler
         } while (skipContext(ctx, currentExecutor, mask, MASK_ONLY_OUTBOUND));
         return ctx;
     }
@@ -1072,6 +1095,10 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
     private static boolean skipContext(
             AbstractChannelHandlerContext ctx, EventExecutor currentExecutor, int mask, int onlyMask) {
         // Ensure we correctly handle MASK_EXCEPTION_CAUGHT which is not included in the MASK_EXCEPTION_CAUGHT
+        // 这里ctx.executionMask的含义是标识当前handler是否支持某种事件的触发，
+        // 一般来说，一个handler会只实现了ChannelInboundHandler接口，那么它就会具有 MASK_ONLY_INBOUND 这样的mask
+        // 如果一个handler同时实现了ChannelInboundHandler和ChannelOutboundHandler接口，那么它就会具有 MASK_ALL_INBOUND 这样的mask
+        // 这个值是在我们将handler添加到pipeline中的时候（即AbstractChannelHandlerContext构造方法中）通过反射的方式运算出来的
         return (ctx.executionMask & (onlyMask | mask)) == 0 ||
                 // We can only skip if the EventExecutor is the same as otherwise we need to ensure we offload
                 // everything to preserve ordering.
@@ -1136,10 +1163,16 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
      * If this method returns {@code false} we will not invoke the {@link ChannelHandler} but just forward the event.
      * This is needed as {@link DefaultChannelPipeline} may already put the {@link ChannelHandler} in the linked-list
      * but not called {@link ChannelHandler#handlerAdded(ChannelHandlerContext)}.
+     *
+     * 尽最大可能检测是否{@link ChannelHandler#handlerAdded(ChannelHandlerContext)}被调用。
+     * 如果没有则返回{@code false}，如果被调用或检测不到则返回{@code true}。
+     * 如果这个方法返回{@code false}，我们将不会调用{@link ChannelHandler}，而只是转发事件。这是需要的，因为{@link DefaultChannelPipeline}可能已经把{@link ChannelHandler}放在链表中，但没有调用{@link ChannelHandlerhandlerAdded(ChannelHandlerContext)}。
      */
     private boolean invokeHandler() {
         // Store in local variable to reduce volatile reads.
         int handlerState = this.handlerState;
+        // 如果handlerState为ADD_COMPLETE，说明handlerAdded方法已经被调用过了，可以直接调用handler方法
+        // handlerAdded 方法是在handler添加到pipeline中时被调用的，一旦该方法被调用，就说明handler已经被添加到pipeline中并且已经准备好处理事件了。
         return handlerState == ADD_COMPLETE || (!ordered && handlerState == ADD_PENDING);
     }
 

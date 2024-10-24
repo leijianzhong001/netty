@@ -97,11 +97,14 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
     protected class NioByteUnsafe extends AbstractNioUnsafe {
 
         private void closeOnRead(ChannelPipeline pipeline) {
+            // 判断套接字连接的读半部分是否关闭。
             if (!isInputShutdown0()) {
+                // 判断是否支持半关，如果是，则只关闭读半部分，然后触发事件
                 if (isAllowHalfClosure(config())) {
                     shutdownInput();
                     pipeline.fireUserEventTriggered(ChannelInputShutdownEvent.INSTANCE);
                 } else {
+                    // 正常情况下都不需要半关功能，所以一般走这里
                     close(voidPromise());
                 }
             } else if (!inputClosedSeenErrorOnRead) {
@@ -127,6 +130,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             // If oom will close the read event, release connection.
             // See https://github.com/netty/netty/issues/10434
             if (close || cause instanceof OutOfMemoryError || cause instanceof IOException) {
+                // 如果是上面这几种异常，或者channel确实被close了，则关闭channel
                 closeOnRead(pipeline);
             }
         }
@@ -157,6 +161,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                     allocHandle.lastBytesRead(doReadBytes(byteBuf));
                     if (allocHandle.lastBytesRead() <= 0) {
                         // nothing was read. release the buffer.
+                        // 最后读到的数据小于0，说明读取到了EOF，释放ByteBuf
                         byteBuf.release();
                         byteBuf = null;
                         close = allocHandle.lastBytesRead() < 0;
@@ -180,9 +185,11 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                 pipeline.fireChannelReadComplete();
 
                 if (close) {
+                    // 6、如果读取到的字节数小于0，说明读取到了EOF，关闭读事件
                     closeOnRead(pipeline);
                 }
             } catch (Throwable t) {
+                // 如果读数据的过程中发生了除ClosedChannelException之外的异常，则这个时候在这里处理连接关闭。ClosedChannelException异常会直接返回-1，当做正常关闭连接处理
                 handleReadException(pipeline, byteBuf, t, close, allocHandle);
             } finally {
                 // Check if there is a readPending which was not processed yet.
@@ -304,6 +311,8 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
             // use our write quantum. In this case we no longer want to set the write OP because the socket is still
             // writable (as far as we know). We will find out next time we attempt to write if the socket is writable
             // and set the write OP if necessary.
+            // 有可能我们已经设置了写OP，由NIO唤醒，因为套接字是可写的，然后使用我们的写量子。
+            // 在这种情况下，我们不再需要设置写OP，因为套接字仍然是可写的（据我们所知）。下次尝试写入时，我们将查明套接字是否可写，并在必要时设置write OP。
             clearOpWrite();
 
             // Schedule flush again later so other tasks can be picked up in the meantime

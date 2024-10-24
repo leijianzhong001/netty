@@ -82,6 +82,7 @@ public abstract class MessageToMessageEncoder<I> extends ChannelOutboundHandlerA
     public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
         CodecOutputList out = null;
         try {
+            // MessageToMessageEncoder 有一个重要的机制就是会判断是否是需要处理的消息类型，如果不是泛型中指定的类型，则不处理，直接传递给下一个 ChannelOutboundHandler
             if (acceptOutboundMessage(msg)) {
                 out = CodecOutputList.newInstance();
                 @SuppressWarnings("unchecked")

@@ -67,6 +67,9 @@ public abstract class AbstractEventExecutorGroup implements EventExecutorGroup {
 
     @Override
     public Future<?> shutdownGracefully() {
+        // DEFAULT_SHUTDOWN_QUIET_PERIOD 关闭过程中的静默时间，一旦该时间段内没有task/hook执行过，就执行关闭，否则等待100ms后再次检查。
+        // 静默期的意思是任务队列静默多长时间（即多长时间任务队列中没有任务）之后才可以关闭EventLoop，如果在优雅关闭的最大时间之内，经过了DEFAULT_SHUTDOWN_QUIET_PERIOD指定的时间之后，依旧没有任务被执行，那么就关闭线程池。而如果在静默期内有任务被执行，那么静默期被打破了，还不能关闭EventLoop
+        // DEFAULT_SHUTDOWN_TIMEOUT 优雅关闭等待的最大时间
         return shutdownGracefully(DEFAULT_SHUTDOWN_QUIET_PERIOD, DEFAULT_SHUTDOWN_TIMEOUT, TimeUnit.SECONDS);
     }
 

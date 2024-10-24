@@ -347,6 +347,8 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
     @Override
     protected void doClose() throws Exception {
         super.doClose();
+        // 1、关键点，调用原生的SocketChannel.close()方法，关闭当前channel
+        // 2、close方法中会将当前channel在Selector上的SelectionKeys都取消掉，使其不在能够接受新的事件
         javaChannel().close();
     }
 
@@ -377,10 +379,12 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
         // SO_SNDBUF (and other characteristics that determine how much data can be written at once) so we should try
         // make a best effort to adjust as OS behavior changes.
         if (attempted == written) {
+            // 1、如果本次已经写入的数据和尝试写入的数据一样，那么说明本次的数据被完全写入了，尝试扩大下次写入的数据量
             if (attempted << 1 > oldMaxBytesPerGatheringWrite) {
                 ((NioSocketChannelConfig) config).setMaxBytesPerGatheringWrite(attempted << 1);
             }
         } else if (attempted > MAX_BYTES_PER_GATHERING_WRITE_ATTEMPTED_LOW_THRESHOLD && written < attempted >>> 1) {
+            // 2、如果本次写入的数据小于尝试写入的数据的一半，并且大于4096，那么说明本次写入的数据量太大了，尝试缩小下次写入的数据量
             ((NioSocketChannelConfig) config).setMaxBytesPerGatheringWrite(attempted >>> 1);
         }
     }
@@ -388,18 +392,24 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
     @Override
     protected void doWrite(ChannelOutboundBuffer in) throws Exception {
         SocketChannel ch = javaChannel();
+        // 有数据要写，且可以写出，最多写出16次
         int writeSpinCount = config().getWriteSpinCount();
         do {
             if (in.isEmpty()) {
                 // All written so clear OP_WRITE
+                // 所有数据都已经写完了，不需要继续写了，所以清除当前channel上的SelectionKey OP_WRITE，表示当前channel已经没有数据可以写，对写事件不感兴趣了
                 clearOpWrite();
                 // Directly return here so incompleteWrite(...) is not called.
                 return;
             }
 
             // Ensure the pending writes are made of ByteBufs only.
+            // 这里确定每次可写的最大值，也是会根据实际成功写出的数据进行调整
             int maxBytesPerGatheringWrite = ((NioSocketChannelConfig) config).getMaxBytesPerGatheringWrite();
+            // 最多发送1024个数据，1024指的是消息数量，所有的消息总的size尽量不要超过 maxBytesPerGatheringWrite
+            // 这里就是将所有待写的数据转换成ByteBuffer数组
             ByteBuffer[] nioBuffers = in.nioBuffers(1024, maxBytesPerGatheringWrite);
+            // 本次实际刷出的消息数量
             int nioBufferCnt = in.nioBufferCount();
 
             // Always use nioBuffers() to workaround data-corruption.
@@ -415,12 +425,14 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                     // to check if the total size of all the buffers is non-zero.
                     ByteBuffer buffer = nioBuffers[0];
                     int attemptedBytes = buffer.remaining();
+                    // 1、注意这里，调用java nio原生的SocketChannel.write(ByteBuffer)方法，将数据写出
                     final int localWrittenBytes = ch.write(buffer);
                     if (localWrittenBytes <= 0) {
                         incompleteWrite(true);
                         return;
                     }
                     adjustMaxBytesPerGatheringWrite(attemptedBytes, localWrittenBytes, maxBytesPerGatheringWrite);
+                    // 2、从outboundBuffer中移除已经写出的数据，主要是针对完全写出的Entry，将其从outboundBuffer中移除，并且递减flushed计数器
                     in.removeBytes(localWrittenBytes);
                     --writeSpinCount;
                     break;
@@ -430,14 +442,20 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                     // to check if the total size of all the buffers is non-zero.
                     // We limit the max amount to int above so cast is safe
                     long attemptedBytes = in.nioBufferSize();
+                    // 1、注意这里，调用java nio原生的SocketChannel.write(ByteBuffer[])方法，将数据写出，这里是批量写出
                     final long localWrittenBytes = ch.write(nioBuffers, 0, nioBufferCnt);
                     if (localWrittenBytes <= 0) {
+                        // 这里如果返回0，则说明当前channel已经写满了，不能再写了，
+                        // 此时给当前channel的SelectionKey上注册一个OP_WRITE事件，等待下次能写的时候再来写
+                        // OP_WRITE 标志会在NioEventLoop.processSelectedKey()中被处理，实际上就是重新发起了一次 AbstractChannel.AbstractUnsafe.flush0操作
                         incompleteWrite(true);
                         return;
                     }
                     // Casting to int is safe because we limit the total amount of data in the nioBuffers to int above.
+                    // 2、根据本次实际写入的数据量，自适应的调整下次写入的数据量
                     adjustMaxBytesPerGatheringWrite((int) attemptedBytes, (int) localWrittenBytes,
                             maxBytesPerGatheringWrite);
+                    // 3、从outboundBuffer中移除已经写出的数据，主要是针对完全写出的Entry，将其从outboundBuffer中移除，并且递减flushed计数器
                     in.removeBytes(localWrittenBytes);
                     --writeSpinCount;
                     break;
@@ -445,6 +463,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
             }
         } while (writeSpinCount > 0);
 
+        // 如果写了16次还没有写完，那么直接schedule一个新的flush task出来，而不是注册一个OP_WRITE事件
         incompleteWrite(writeSpinCount < 0);
     }
 
@@ -457,12 +476,16 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
         @Override
         protected Executor prepareToClose() {
             try {
+                // SoLinger 参数表示我们在关闭连接之前，是否需要阻塞等待数据收发完成，如果等待，那么等待的时间是多少
                 if (javaChannel().isOpen() && config().getSoLinger() > 0) {
                     // We need to cancel this key of the channel so we may not end up in a eventloop spin
                     // because we try to read or write until the actual close happens which may be later due
                     // SO_LINGER handling.
                     // See https://github.com/netty/netty/issues/4449
+                    // 需要逗留到数据收发完成的时间，所以提交到另外的Executor去执行
+                    // 提前doDeregister掉，即将当前channel的所有SelectionKeys, 逗留期不能再接受新的数据
                     doDeregister();
+                    // 这里单独返回一个GlobalEventExecutor.INSTANCE，逗留的关闭操作在GlobalEventExecutor.INSTANCE中执行，防止阻塞住当前的EventLoop
                     return GlobalEventExecutor.INSTANCE;
                 }
             } catch (Throwable ignore) {

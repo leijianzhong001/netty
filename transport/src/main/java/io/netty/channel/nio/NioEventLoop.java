@@ -603,8 +603,11 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             } finally {
                 // Always handle shutdown even if the loop processing threw an exception.
                 try {
+                    // 这里在每次循环结束时检查当前EventLoop是否正在关闭，如果是，则关闭所有Channel
                     if (isShuttingDown()) {
+                        // 1、close所有Channel
                         closeAll();
+                        // 2、confirmShutdown 是优雅关闭的关键, 如果返回true，说明静默期内没有任务执行，或者已经超过了最大优雅关闭时间，可以退出循环了
                         if (confirmShutdown()) {
                             return;
                         }
@@ -670,6 +673,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     @Override
     protected void cleanup() {
         try {
+            // 关闭selector
             selector.close();
         } catch (IOException e) {
             logger.warn("Failed to close a selector.", e);
@@ -677,7 +681,9 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     }
 
     void cancel(SelectionKey key) {
+        // 没有特殊情况（配置so linger）的话，下面这个cancel实际上没有执行，因为在关闭channel的时候已经执行过了
         key.cancel();
+        // 下面是优化，当处理一批事件时，发现很多连接都断了（默认256），这个时候后面的事件可能都失效了，所以不妨select again一下。
         cancelledKeys ++;
         if (cancelledKeys >= CLEANUP_INTERVAL) {
             cancelledKeys = 0;
@@ -809,6 +815,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                  * 3、这个分支用来处理读就绪、或者创建连接事件。但是根据事件有不同的实现。
                  *      3.1、对于创建连接事件，即OP_ACCEPT->16，这里的unsafe.read实现是 AbstractNioMessageChannel.NioMessageUnsafe#read()
                  *      3.2、对与读就绪时间，即OP_READ->1， 这里的unsafe.read实现是    AbstractNioByteChannel.NioByteUnsafe#read()
+                 *      3.3、另外，如果客户端关闭了连接，也会触发OP_READ事件，这个时候会调用unsafe.read()，然后在read()方法中判断是否读到-1，如果读到-1，就会调用unsafe.close()关闭连接。
                  */
                 unsafe.read();
             }
@@ -844,8 +851,9 @@ public final class NioEventLoop extends SingleThreadEventLoop {
     }
 
     private void closeAll() {
-        selectAgain();
+        selectAgain(); // selectAgain的目的在于去除已经是canceled状态的SelectionKey，这样selector.keys()得到的就都是有效的key了
         Set<SelectionKey> keys = selector.keys();
+        // 1、这里从selector中获取所有的SelectionKey，并进而得到所有的channel
         Collection<AbstractNioChannel> channels = new ArrayList<AbstractNioChannel>(keys.size());
         for (SelectionKey k: keys) {
             Object a = k.attachment();
@@ -859,6 +867,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
             }
         }
 
+        // 2、循环关闭所有的channel
         for (AbstractNioChannel ch: channels) {
             ch.unsafe().close(ch.unsafe().voidPromise());
         }
