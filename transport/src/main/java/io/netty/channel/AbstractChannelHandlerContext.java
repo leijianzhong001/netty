@@ -106,6 +106,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
         this.name = ObjectUtil.checkNotNull(name, "name");
         this.pipeline = pipeline;
         this.executor = executor;
+        // 计算当前handler的执行掩码，例如如果添加了@Skip注解，就会在掩码中将对应方法的掩码置为0
         this.executionMask = mask(handlerClass);
         // Its ordered if its driven by the EventLoop or the given Executor is an instanceof OrderedEventExecutor.
         ordered = executor == null || executor instanceof OrderedEventExecutor;
@@ -129,8 +130,10 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
     @Override
     public EventExecutor executor() {
         if (executor == null) {
+            // 如果当前handler没有指定executor，则使用channel的eventLoop
             return channel().eventLoop();
         } else {
+            // 如果指定了executor，则使用指定的executor
             return executor;
         }
     }
@@ -418,6 +421,9 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
 
     static void invokeChannelRead(final AbstractChannelHandlerContext next, Object msg) {
         final Object m = next.pipeline.touch(ObjectUtil.checkNotNull(msg, "msg"), next);
+        // 获取当前handler的executor。如果在handler添加到pipeline时没有指定executor，则使用的是channel的eventLoop，也即是workerGroup中的eventLoop
+        // 而由于 invokeChannelRead 肯定是由workerGroup中的eventLoop调度的，所以这种情况下executor.inEventLoop()是true
+        // 相反，如果指定了executor，则executor.inEventLoop()可能是false，这种情况下会将任务提交到executor中执行
         EventExecutor executor = next.executor();
         if (executor.inEventLoop()) {
             next.invokeChannelRead(m);

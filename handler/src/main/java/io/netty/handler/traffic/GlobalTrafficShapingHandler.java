@@ -104,6 +104,7 @@ public class GlobalTrafficShapingHandler extends AbstractTrafficShapingHandler {
      * Create the global TrafficCounter.
      */
     void createGlobalTrafficCounter(ScheduledExecutorService executor) {
+        // 在创建 GlobalTrafficShapingHandler ，创建流量计数器 TrafficCounter
         TrafficCounter tc = new TrafficCounter(this,
                 ObjectUtil.checkNotNull(executor, "executor"),
                 "GlobalTC",
@@ -331,8 +332,16 @@ public class GlobalTrafficShapingHandler extends AbstractTrafficShapingHandler {
     void submitWrite(final ChannelHandlerContext ctx, final Object msg,
             final long size, final long writedelay, final long now,
             final ChannelPromise promise) {
+        // msg: 本次要写出的数据
+        // size: 本次要写出的数据大小
+        // writedelay: 本次写出的延迟时间
+        // now: 当前时间
+        // promise: 本次写出的promise
+
+        //步骤1： 根据channel的key,获取对应的存delay数据的queue,没有则创建
         Channel channel = ctx.channel();
         Integer key = channel.hashCode();
+        // 简而言之，PerChannel 存储了此channel所有由于流量整形而被延迟写出的数据
         PerChannel perChannel = channelQueues.get(key);
         if (perChannel == null) {
             // in case write occurs before handlerAdded is raised for this handler
@@ -340,31 +349,47 @@ public class GlobalTrafficShapingHandler extends AbstractTrafficShapingHandler {
             perChannel = getOrSetPerChannel(ctx);
         }
         final ToSend newToSend;
+        // 本次写出的延迟时间
         long delay = writedelay;
         boolean globalSizeExceeded = false;
         // write operations need synchronization
         synchronized (perChannel) {
+            //步骤2：判断是否要delay，如果不需要且queue中无数据，直接发。
             if (writedelay == 0 && perChannel.messagesQueue.isEmpty()) {
                 trafficCounter.bytesRealWriteFlowControl(size);
                 ctx.write(msg, promise);
                 perChannel.lastWriteTimestamp = now;
                 return;
             }
+
+            //如果queue有数据，即使不需要delay，也要将数据入queue，因为需要保持顺序，
+
+            //步骤3： 预计delay时间过长, 或者现在时间加上要延迟的时间后距离现在已经超过了15s, 则最多等待15秒（maxTime值）
             if (delay > maxTime && now + delay - perChannel.lastWriteTimestamp > maxTime) {
                 delay = maxTime;
             }
+            //步骤4： 数据进入queue
             newToSend = new ToSend(delay + now, msg, size, promise);
+            //不管什么情况，都直接入queue，所以可能会OOM, 所以后面要根据queue的情况，改变可写标记位。
             perChannel.messagesQueue.addLast(newToSend);
             perChannel.queueSize += size;
+            //上下2个queueSize不一样，上面少个s，代表channel上的queue,下面是global的
             queuesSize.addAndGet(size);
+
+            //步骤5：判断是否queue的数据太多，如果是，设置写状态为不可写。
+
+            //判断channel的queue size是否超标，或者需要停的时间过长，设置writable为false，提醒让上面的handler不要写了。
             checkWriteSuspend(ctx, delay, perChannel.queueSize);
+            //判断global的queues（所有的queue加一起结果） size超标, 400MB
             if (queuesSize.get() > maxGlobalWriteSize) {
                 globalSizeExceeded = true;
             }
         }
         if (globalSizeExceeded) {
+            //如果global的queues size超标，设置写状态为不可写。
             setUserDefinedWritability(ctx, false);
         }
+        //步骤6： 开始schedule一个task来等待delay的时间再来发。
         final long futureNow = newToSend.relativeTimeAction;
         final PerChannel forSchedule = perChannel;
         ctx.executor().schedule(new Runnable() {
@@ -385,6 +410,7 @@ public class GlobalTrafficShapingHandler extends AbstractTrafficShapingHandler {
                     trafficCounter.bytesRealWriteFlowControl(size);
                     perChannel.queueSize -= size;
                     queuesSize.addAndGet(-size);
+                    // 发送数据
                     ctx.write(newToSend.toSend, newToSend.promise);
                     perChannel.lastWriteTimestamp = now;
                 } else {
@@ -393,9 +419,11 @@ public class GlobalTrafficShapingHandler extends AbstractTrafficShapingHandler {
                 }
             }
             if (perChannel.messagesQueue.isEmpty()) {
+                // 恢复写入
                 releaseWriteSuspended(ctx);
             }
         }
+        //这个地方“补一刀”很重要，因为前面的handler执行write的时候，可能并没有数据flush，因为数据被流量整形缓存起来了。
         ctx.flush();
     }
 }

@@ -172,6 +172,7 @@ public class TrafficCounter {
             if (!monitorActive) {
                 return;
             }
+            // 重置读写技术
             resetAccounting(milliSecondFromNano());
             if (trafficShapingHandler != null) {
                 trafficShapingHandler.doAccounting(TrafficCounter.this);
@@ -191,6 +192,7 @@ public class TrafficCounter {
         // if executor is null, it means it is piloted by a GlobalChannelTrafficCounter, so no executor
         if (localCheckInterval > 0 && executor != null) {
             monitorActive = true;
+            // 调度一个以固定速率执行的任务，执行 TrafficMonitoringTask 任务，默认1s
             monitor = new TrafficMonitoringTask();
             scheduledFuture =
                 executor.scheduleAtFixedRate(monitor, 0, localCheckInterval, TimeUnit.MILLISECONDS);
@@ -279,6 +281,7 @@ public class TrafficCounter {
             String name, long checkInterval) {
         this.name = checkNotNull(name, "name");
         this.trafficShapingHandler = checkNotNullWithIAE(trafficShapingHandler, "trafficShapingHandler");
+        //执行 Traffic Counter 的实际操作者
         this.executor = executor;
 
         init(checkInterval);

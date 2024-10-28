@@ -355,6 +355,7 @@ public abstract class Recycler<T> {
                 handle.unguardedToAvailable();
             }
             Thread owner = this.owner;
+            // chunkSize 默认是32，如果batch队列中的对象数量小于32，那么就将对象归还到batch队列中
             if (owner != null && Thread.currentThread() == owner && batch.size() < chunkSize) {
                 // 将对象归还到batch队列中
                 accept(handle);

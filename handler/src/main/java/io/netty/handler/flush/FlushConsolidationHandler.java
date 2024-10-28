@@ -57,7 +57,9 @@ import java.util.concurrent.Future;
  * {@link ChannelPipeline} to have the best effect.
  */
 public class FlushConsolidationHandler extends ChannelDuplexHandler {
+    // 多少次flush调用之后实际触发一次flush, 默认256次
     private final int explicitFlushAfterFlushes;
+    // 是否在没有读操作进行时合并flush操作
     private final boolean consolidateWhenNoReadInProgress;
     private final Runnable flushTask;
     private int flushPendingCount;
@@ -118,22 +120,37 @@ public class FlushConsolidationHandler extends ChannelDuplexHandler {
         this.ctx = ctx;
     }
 
+    /**
+     * 同步调用时方法的触发顺序：             read | writeAndFlush       | readComplete
+     * 异步调用时方法的触发顺序：             read |     readComplete    | writeAndFlush
+     * ReadInProgress在两种方式时的状态变化  00000|111111111111111111111|0000000000000
+     *                                   00000|1111|000000000000000000000000000000
+     */
     @Override
     public void flush(ChannelHandlerContext ctx) throws Exception {
-        if (readInProgress) {
+        //根据业务线程是否复用IO线程两种情况来考虑：
+        //复用情况
+        if (readInProgress) { //正在读的时候,即channelReadComplete方法还没触发的时候
             // If there is still a read in progress we are sure we will see a channelReadComplete(...) call. Thus
             // we only need to flush if we reach the explicitFlushAfterFlushes limit.
+            // 每explicitFlushAfterFlushes个“批量”写（flush）一次。
+            // 如果不足256次flush调用怎么办？ channelReadComplete方法中会补一次flush
             if (++flushPendingCount == explicitFlushAfterFlushes) {
                 flushNow(ctx);
             }
+            //以下是非复用情况：异步情况
         } else if (consolidateWhenNoReadInProgress) {
+            //（业务异步化情况下）开启consolidateWhenNoReadInProgress时，优化flush
+            //（比如没有读请求了，但是内部还是忙的团团转，没有消化的时候，所以还是会写响应）
             // Flush immediately if we reach the threshold, otherwise schedule
             if (++flushPendingCount == explicitFlushAfterFlushes) {
                 flushNow(ctx);
             } else {
+                // 次数达不到的情况下也会flush，只不过是异步的调度一个flush，这样由于task可能会延迟执行，那么也会降低flush的次数
                 scheduleFlush(ctx);
             }
         } else {
+            //（业务异步化情况下）没有开启consolidateWhenNoReadInProgress时，直接flush
             // Always flush directly
             flushNow(ctx);
         }

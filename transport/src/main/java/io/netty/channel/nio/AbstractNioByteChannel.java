@@ -176,6 +176,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                     readPending = false;
                     // 3、触发业务处理的地方，一次数据读取触发一次
                     pipeline.fireChannelRead(byteBuf);
+                    // 注意这里的置空操作，置空之后，对应的ByteBuf对象就可能被回收，可以帮助提前被内存泄漏检测检测到。
                     byteBuf = null;
                 } while (allocHandle.continueReading());
 

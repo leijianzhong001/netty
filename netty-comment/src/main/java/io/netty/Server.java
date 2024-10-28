@@ -8,20 +8,25 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.string.StringDecoder;
 import io.netty.handler.codec.string.StringEncoder;
+import io.netty.handler.flush.FlushConsolidationHandler;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
+import io.netty.util.concurrent.DefaultThreadFactory;
 
 
 public class Server {
     public static void main(String[] args) {
 
-        // bossGroup 一般只需要一个，所以指定一下
-        EventLoopGroup bossGroup = new NioEventLoopGroup();
+        // bossGroup 一般只需要一个，所以指定一下。这里为了易于诊断，同时设置了线程名称
+        EventLoopGroup bossGroup = new NioEventLoopGroup(1, new DefaultThreadFactory("bossGroup"));
         // workerGroup 指定8个
-        EventLoopGroup workerGroup = new NioEventLoopGroup();
+        EventLoopGroup workerGroup = new NioEventLoopGroup(8, new DefaultThreadFactory("workerGroup"));
 
         // `ServerBootstrap`是服务端程序的引导类，其机制是**通过将一系列的参数组合出足够的信息，然后基于这些信息创建一个监听指定端口的应用程序**。
         ServerBootstrap bootstrap = new ServerBootstrap();
+
+        // LoggingHandler 是可以在多个pipeline中共享的，所以这里可以直接创建一个实例
+        LoggingHandler infoLogHandler = new LoggingHandler(LogLevel.INFO);
 
         // 在`ServerBootstrap`引导类的指定线程组的`group`方法中，会将bossGroup赋给自己的`group`成员变量，将`workerGroup`赋给自己的`childGroup`变量。
         bootstrap.group(bossGroup, workerGroup)
@@ -36,10 +41,17 @@ public class Server {
                     @Override
                     protected void initChannel(SocketChannel ch) throws Exception {
                         System.out.println("客户socket Channel hashcode = " + ch.hashCode());
+                        // debug日志放在pipeline的开头，用于打印搜到的原始数据
+                        ch.pipeline().addLast("debugLogHandler", new LoggingHandler(LogLevel.DEBUG));
                         // 服务端使用自定义的编解码器来发送和接收消息
-                        ch.pipeline().addLast(new StringEncoder());
-                        ch.pipeline().addLast(new StringDecoder());
-                        ch.pipeline().addLast(new ServerHandler());
+                        ch.pipeline().addLast("StringEncoder", new StringEncoder());
+                        ch.pipeline().addLast("StringDecoder", new StringDecoder());
+                        ch.pipeline().addLast("MyServerHandler", new ServerHandler());
+                        // info日志放在pipeline的最后，打印业务日志
+                        ch.pipeline().addLast("infoLogHandler", new LoggingHandler(LogLevel.INFO));
+                        // 第一个参数指定多少次flush调用之后，实际的触发一次flush
+                        // 第二个参数指定是否在channelReadComplete之后依旧合并flush
+                        ch.pipeline().addLast("flushEnhance", new FlushConsolidationHandler(16, true));
                     }
                 }); // 给我们的 workerGroup 的 EventLoop 对应的管道设置处理器
 

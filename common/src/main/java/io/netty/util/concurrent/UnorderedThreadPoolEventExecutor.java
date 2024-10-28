@@ -80,6 +80,7 @@ public final class UnorderedThreadPoolEventExecutor extends ScheduledThreadPoolE
 
     @Override
     public EventExecutor next() {
+        // 返回自己，即一个线程池
         return this;
     }
 

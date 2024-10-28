@@ -164,11 +164,17 @@ public class ResourceLeakDetector<T> {
     private final Set<DefaultResourceLeak<?>> allLeaks =
             Collections.newSetFromMap(new ConcurrentHashMap<DefaultResourceLeak<?>, Boolean>());
 
+    /**
+     * 引用队列，该引用队列正存放的是 ResoureLeak 对象链，代表着这里面的引用对象所指向的对象已被垃圾回收。
+     * 按照常理，如果该 ResourceLeak 对象，也同时存在于上面的allLeaks中，说明发生了内存泄漏。
+     */
     private final ReferenceQueue<Object> refQueue = new ReferenceQueue<Object>();
     private final Set<String> reportedLeaks =
             Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
 
+    // 检测对象的完全限定名称,主要用途用于报告内存泄漏时，相关的详细信息。
     private final String resourceType;
+    // 内存泄漏检测级别是SIMPLE时，的检测频率，默认128，单位为个，而不是时间。
     private final int samplingInterval;
 
     /**
@@ -247,6 +253,7 @@ public class ResourceLeakDetector<T> {
      */
     @SuppressWarnings("unchecked")
     public final ResourceLeakTracker<T> track(T obj) {
+        // 在分配Bytebuf的时候，就会调用此方法，将ByteBuf包装为一个DefaultResourceLeak对象
         return track0(obj, false);
     }
 
@@ -270,7 +277,11 @@ public class ResourceLeakDetector<T> {
         if (force ||
                 level == Level.PARANOID ||
                 (level != Level.DISABLED && PlatformDependent.threadLocalRandom().nextInt(samplingInterval) == 0)) {
+            // 不是DISABLED级别，达到采样频率的话，就会创建一个DefaultResourceLeak对象
+            // samplingInterval默认是128，所以大概1/128的概率会创建一个DefaultResourceLeak对象以支持资源泄露检测
+            // 内存泄漏报告也是在创建Bytebuf的时候顺便进行的
             reportLeak();
+            // 注意：DefaultResourceLeak是一个WeakReference对象，并且指定了ReferenceQueue，所以当ByteBuf对象被回收时，会被加入到ReferenceQueue中
             return new DefaultResourceLeak(obj, refQueue, allLeaks, getInitialHint(resourceType));
         }
         return null;
@@ -304,15 +315,18 @@ public class ResourceLeakDetector<T> {
 
         // Detect and report previous leaks.
         for (;;) {
+            // 从ReferenceQueue中获取DefaultResourceLeak对象。当弱引用指向的对象被GC时，会被加入到ReferenceQueue中
             DefaultResourceLeak ref = (DefaultResourceLeak) refQueue.poll();
             if (ref == null) {
                 break;
             }
 
+            // 这里就是判断没有没内存泄漏的关键
             if (!ref.dispose()) {
                 continue;
             }
 
+            // 开始报告内存泄漏，这里会调用DefaultResourceLeak对象的getReportAndClearRecords方法，获取内存泄漏的详细信息
             String records = ref.getReportAndClearRecords();
             if (reportedLeaks.add(records)) {
                 if (records.isEmpty()) {
@@ -493,6 +507,10 @@ public class ResourceLeakDetector<T> {
 
         boolean dispose() {
             clear();
+            // 如果allLeaks中依旧包含这个 DefaultResourceLeak 对象，就返回true，说明发生了内存泄漏。
+            // DefaultResourceLeak对象会在 DefaultResourceLeak对象构造时加入到allLeaks中
+            // DefaultResourceLeak 对象会在DefaultResourceLeak对象的close方法被调用时从allLeaks中移除，close方法会在ByteBuf对象的引用计数器为0时调用。
+            // 而一旦ByteBuf对象被回收，但是其引用计数器不为0时，说明发生了内存泄漏
             return allLeaks.remove(this);
         }
 

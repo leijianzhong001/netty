@@ -124,10 +124,13 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         if (group == null) {
             return null;
         }
+        // 默认会将handler绑定到一个固定的线程上，如果设置了ChannelOption.SINGLE_EVENTEXECUTOR_PER_GROUP为false，则会使用一个线程池
         Boolean pinEventExecutor = channel.config().getOption(ChannelOption.SINGLE_EVENTEXECUTOR_PER_GROUP);
         if (pinEventExecutor != null && !pinEventExecutor) {
+            // 如果为false，则不绑定，固定的通过线程池的next()方法来获取一个线程
             return group.next();
         }
+        // 如果为true，则绑定到一个固定的线程上
         Map<EventExecutorGroup, EventExecutor> childExecutors = this.childExecutors;
         if (childExecutors == null) {
             // Use size of 4 as most people only use one extra EventExecutor.
@@ -137,6 +140,9 @@ public class DefaultChannelPipeline implements ChannelPipeline {
         // is used to fire events for the same channel.
         EventExecutor childExecutor = childExecutors.get(group);
         if (childExecutor == null) {
+            // 调用EventExecutorGroup的next()方法来获取一个线程。
+            // 不同的是， NioEventLoopGroup的next()方法会返回一个线程，
+            // 而UnorderedThreadPoolEventExecutor的next()方法会返回一个线程池。
             childExecutor = group.next();
             childExecutors.put(group, childExecutor);
         }

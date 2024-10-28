@@ -340,8 +340,10 @@ public class DefaultChannelConfig implements ChannelConfig {
     public ChannelConfig setAutoRead(boolean autoRead) {
         boolean oldAutoRead = AUTOREAD_UPDATER.getAndSet(this, autoRead ? 1 : 0) == 1;
         if (autoRead && !oldAutoRead) {
+            // 添加当前channel注册在selector上的读事件监听。这里实际上会调用到HeadContext的read方法,在该方法中注册OP_ACCEPT/OP_READ事件
             channel.read();
         } else if (!autoRead && oldAutoRead) {
+            // 移除当前channel注册在selector上的读事件监听
             autoReadCleared();
         }
         return this;

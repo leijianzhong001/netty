@@ -144,6 +144,7 @@ public abstract class MultithreadEventExecutorGroup extends AbstractEventExecuto
 
     @Override
     public EventExecutor next() {
+        // 从`EventExecutorChooser`中选择一个`NioEventLoop`对象
         return chooser.next();
     }
 
