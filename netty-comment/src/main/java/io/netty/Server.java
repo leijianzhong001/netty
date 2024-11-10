@@ -9,9 +9,15 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.string.StringDecoder;
 import io.netty.handler.codec.string.StringEncoder;
 import io.netty.handler.flush.FlushConsolidationHandler;
+import io.netty.handler.ipfilter.IpFilterRule;
+import io.netty.handler.ipfilter.IpFilterRuleType;
+import io.netty.handler.ipfilter.IpSubnetFilterRule;
+import io.netty.handler.ipfilter.RuleBasedIpFilter;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.util.concurrent.DefaultThreadFactory;
+
+import java.net.InetSocketAddress;
 
 
 public class Server {
@@ -28,6 +34,10 @@ public class Server {
         // LoggingHandler 是可以在多个pipeline中共享的，所以这里可以直接创建一个实例
         LoggingHandler infoLogHandler = new LoggingHandler(LogLevel.INFO);
 
+        // 只允许来自回环地址的连接。 shared handler, 所以可以提出来到外面
+        IpSubnetFilterRule onlyLoopBack = new IpSubnetFilterRule("127.0.0.1", 32, IpFilterRuleType.ACCEPT);
+        RuleBasedIpFilter ruleBasedIpFilter = new RuleBasedIpFilter(onlyLoopBack);
+
         // 在`ServerBootstrap`引导类的指定线程组的`group`方法中，会将bossGroup赋给自己的`group`成员变量，将`workerGroup`赋给自己的`childGroup`变量。
         bootstrap.group(bossGroup, workerGroup)
                 .channel(NioServerSocketChannel.class) // 本例中指定的通道实现是 `NioServerSocketChannel`， 即之后一旦有请求到达服务器，**会使用 `NioServerSocketChannel` 类型的`accept()`来创建一个 `NioSocketChannel`进行数据读写。**
@@ -41,6 +51,8 @@ public class Server {
                     @Override
                     protected void initChannel(SocketChannel ch) throws Exception {
                         System.out.println("客户socket Channel hashcode = " + ch.hashCode());
+                        // ip过滤，需要在入站第一时间过滤掉，所以放在pipeline的开头
+                        ch.pipeline().addLast(ruleBasedIpFilter);
                         // debug日志放在pipeline的开头，用于打印搜到的原始数据
                         ch.pipeline().addLast("debugLogHandler", new LoggingHandler(LogLevel.DEBUG));
                         // 服务端使用自定义的编解码器来发送和接收消息

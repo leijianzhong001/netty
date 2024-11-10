@@ -81,8 +81,10 @@ public class RuleBasedIpFilter extends AbstractRemoteAddressFilter<InetSocketAdd
 
     @Override
     protected boolean accept(ChannelHandlerContext ctx, InetSocketAddress remoteAddress) throws Exception {
+        // 基于规则的ip过滤器允许用户自定一系列规则，如果规则能够处理当前ip，则根据规则内部的规则类型来决定是否接受连接
         for (IpFilterRule rule : rules) {
             if (rule.matches(remoteAddress)) {
+                // 如果没有匹配的规则，则视acceptIfNotFound的值看是否拒绝接受连接
                 return rule.ruleType() == IpFilterRuleType.ACCEPT;
             }
         }

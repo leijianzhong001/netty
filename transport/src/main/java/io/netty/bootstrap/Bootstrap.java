@@ -161,6 +161,8 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
      * @see #connect()
      */
     private ChannelFuture doResolveAndConnect(final SocketAddress remoteAddress, final SocketAddress localAddress) {
+        // 1、该方法的主要作用是创建一个`NioSocketChannel`并初始化 TCP 连接的相关参数；
+        // 2、将创建的NioSocketChannel注册到Selector上
         final ChannelFuture regFuture = initAndRegister();
         final Channel channel = regFuture.channel();
 
@@ -168,6 +170,7 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
             if (!regFuture.isSuccess()) {
                 return regFuture;
             }
+            // 3、连接到服务器,regFuture在一般情况下都不是done，所以一般情况下走这里。最终调用的是java nio 的SocketChannel.connect方法连接到了服务器
             return doResolveAndConnect0(channel, remoteAddress, localAddress, channel.newPromise());
         } else {
             // Registration future is almost always fulfilled already, but just in case it's not.
@@ -228,6 +231,7 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
                     promise.setFailure(resolveFailureCause);
                 } else {
                     // Succeeded to resolve immediately; cached? (or did a blocking lookup)
+                    // 1、最终调用的是java nio 的SocketChannel.connect方法连接到了服务器
                     doConnect(resolveFuture.getNow(), localAddress, promise);
                 }
                 return promise;
@@ -261,6 +265,7 @@ public class Bootstrap extends AbstractBootstrap<Bootstrap, Channel> {
             @Override
             public void run() {
                 if (localAddress == null) {
+                    // 1、connect 实现是NioSocketChannel的父类AbstractChannel，最终调用的是java nio 的SocketChannel.connect方法连接到了服务器
                     channel.connect(remoteAddress, connectPromise);
                 } else {
                     channel.connect(remoteAddress, localAddress, connectPromise);

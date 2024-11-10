@@ -28,6 +28,7 @@ import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.util.Arrays;
 
 /**
  * Simple SSL chat client modified from {@link TelnetClient}.
@@ -39,8 +40,10 @@ public final class SecureChatClient {
 
     public static void main(String[] args) throws Exception {
         // Configure SSL.
+        // 客户端指定了秘钥套件
         final SslContext sslCtx = SslContextBuilder.forClient()
-            .trustManager(InsecureTrustManagerFactory.INSTANCE).build();
+            .trustManager(InsecureTrustManagerFactory.INSTANCE)
+                .ciphers(Arrays.asList("TLS_RSA_WITH_AES_256_CBC_SHA")).build();
 
         EventLoopGroup group = new NioEventLoopGroup();
         try {

@@ -37,6 +37,7 @@ public final class Epoll {
             FileDescriptor epollFd = null;
             FileDescriptor eventFd = null;
             try {
+                // 加载Native是通过Native类的静态代码块实现的
                 epollFd = Native.newEpollCreate();
                 eventFd = Native.newEventFd();
             } catch (Throwable t) {

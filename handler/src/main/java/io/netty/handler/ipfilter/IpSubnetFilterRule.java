@@ -135,8 +135,9 @@ public final class IpSubnetFilterRule implements IpFilterRule, Comparable<IpSubn
                 throw new IllegalArgumentException(String.format("IPv4 requires the subnet prefix to be in range of "
                         + "[0,32]. The prefix was: %d", cidrPrefix));
             }
-
+            // 通过cidrPrefix计算得到子网掩码
             subnetMask = prefixToSubnetMask(cidrPrefix);
+            // 和子网掩码运算得到网段
             networkAddress = NetUtil.ipv4AddressToInt(ipAddress) & subnetMask;
             this.ruleType = ruleType;
         }
@@ -146,6 +147,7 @@ public final class IpSubnetFilterRule implements IpFilterRule, Comparable<IpSubn
             final InetAddress inetAddress = remoteAddress.getAddress();
             if (inetAddress instanceof Inet4Address) {
                 int ipAddress = NetUtil.ipv4AddressToInt((Inet4Address) inetAddress);
+                // 同样使用源端ip地址和子网掩码进行与运算，得到网段，然后和预期的网段进行比较。
                 return (ipAddress & subnetMask) == networkAddress;
             }
             return false;

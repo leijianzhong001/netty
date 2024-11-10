@@ -264,6 +264,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
     @Override
     public ChannelFuture connect(SocketAddress remoteAddress, ChannelPromise promise) {
+        // 调用整个pipeline上handler的connect方法， 实际的处理最终是在pipeline的头结点HeadContext中的connect方法
         return pipeline.connect(remoteAddress, promise);
     }
 

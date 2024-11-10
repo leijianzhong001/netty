@@ -194,7 +194,7 @@ public class IdleStateHandler extends ChannelDuplexHandler {
             TimeUnit unit) {
         ObjectUtil.checkNotNull(unit, "unit");
 
-        // 在评估写空闲性时是否应该考虑{@code字节}的消耗。默认为{@code false}。 意思就是发现写空闲时，是否检测有大数据正在写且长时间没有完成，如果是，也认为非空闲
+        // 在评估写空闲性时是否应该考虑code字节的消耗。默认为false。 意思就是发现写空闲时，是否检测有大数据正在写且长时间没有完成，如果是，也认为非空闲
         // 所以observeOutput这个参数，是用于指定判断写空闲的标准是 是否有写的意图，而不是判断是否写成功。
         this.observeOutput = observeOutput;
 
@@ -559,7 +559,7 @@ public class IdleStateHandler extends ChannelDuplexHandler {
             long lastWriteTime = IdleStateHandler.this.lastWriteTime;
             long nextDelay = writerIdleTimeNanos - (ticksInNanos() - lastWriteTime);
             if (nextDelay <= 0) {
-                // 写空闲了
+                // 写空闲了，重新调度一个任务用于下次写空闲检测
                 // Writer is idle - set a new timeout and notify the callback.
                 writerIdleTimeout = schedule(ctx, this, writerIdleTimeNanos, TimeUnit.NANOSECONDS);
 

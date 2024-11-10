@@ -39,12 +39,14 @@ public abstract class AbstractRemoteAddressFilter<T extends SocketAddress> exten
 
     @Override
     public void channelRegistered(ChannelHandlerContext ctx) throws Exception {
+        // 在channel注册的时候调用handleNewChannel，判断远程ip地址是否符合要求，不符合的话断开连接
         handleNewChannel(ctx);
         ctx.fireChannelRegistered();
     }
 
     @Override
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
+        // 在channel注册的时候调用handleNewChannel，判断远程ip地址是否符合要求，不符合的话断开连接
         if (!handleNewChannel(ctx)) {
             throw new IllegalStateException("cannot determine to accept or reject a channel: " + ctx.channel());
         } else {
@@ -52,6 +54,7 @@ public abstract class AbstractRemoteAddressFilter<T extends SocketAddress> exten
         }
     }
 
+    // 判断连接的远程ip地址是否符合要求，不符合的话断开连接
     private boolean handleNewChannel(ChannelHandlerContext ctx) throws Exception {
         @SuppressWarnings("unchecked")
         T remoteAddress = (T) ctx.channel().remoteAddress();
@@ -63,15 +66,20 @@ public abstract class AbstractRemoteAddressFilter<T extends SocketAddress> exten
 
         // No need to keep this handler in the pipeline anymore because the decision is going to be made now.
         // Also, this will prevent the subsequent events from being handled by this handler.
+        // 只判断一次
         ctx.pipeline().remove(this);
 
+        // 判断是否接受这个地址，这是一个模版方法，由子类实现
         if (accept(ctx, remoteAddress)) {
+            // 当前已有的 channelAccepted 方式实现都是一个空实现 {}，所以什么都不做
             channelAccepted(ctx, remoteAddress);
         } else {
+            // 当前已有的 channelRejected 方法的实现都是返回null, 所以不通过的话，默认执行连接关闭
             ChannelFuture rejectedFuture = channelRejected(ctx, remoteAddress);
             if (rejectedFuture != null) {
                 rejectedFuture.addListener(ChannelFutureListener.CLOSE);
             } else {
+                // 关闭连接
                 ctx.close();
             }
         }

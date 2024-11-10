@@ -59,6 +59,7 @@ public final class Native {
             // This is a workaround for a possible classloader deadlock that could happen otherwise:
             //
             // See https://github.com/netty/netty/issues/10187
+            // 我们调用Selector.open()，因为这将在幕后导致java nio中的IOUtil被加载。这是一个可能发生的类加载器死锁的解决方案：
             selector = Selector.open();
         } catch (IOException ignore) {
             // Just ignore
@@ -66,6 +67,7 @@ public final class Native {
 
         // Preload all classes that will be used in the OnLoad(...) function of JNI to eliminate the possiblity of a
         // class-loader deadlock. This is a workaround for https://github.com/netty/netty/issues/11209.
+        // 预加载JNI的OnLoad（…）函数中使用的所有类，以消除类加载器死锁的可能性。这是https的解决方案：https://github.com/netty/netty/issues/11209.
 
         // This needs to match all the classes that are loaded via NETTY_JNI_UTIL_LOAD_CLASS or looked up via
         // NETTY_JNI_UTIL_FIND_CLASS.
@@ -79,9 +81,11 @@ public final class Native {
         try {
             // First, try calling a side-effect free JNI method to see if the library was already
             // loaded by the application.
+            // 调用一个轻量级的操作测试一下是否加载过Native库了，如果抛出异常，说明没有加载，在catch中加载一下，加载过了就不用重复加载了
             offsetofEpollData();
         } catch (UnsatisfiedLinkError ignore) {
             // The library was not previously loaded, load it now.
+            // 之前没有加载过，现在加载
             loadNativeLibrary();
         } finally {
             try {
@@ -312,11 +316,14 @@ public final class Native {
     public static native int offsetofEpollData();
 
     private static void loadNativeLibrary() {
+        // 看一下操作系统是不是linux的，如果不是就抛出异常
         String name = PlatformDependent.normalizedOs();
         if (!"linux".equals(name)) {
             throw new IllegalStateException("Only supported on Linux");
         }
+        // 静态lib的名字
         String staticLibName = "netty_transport_native_epoll";
+        // shared lib的名字
         String sharedLibName = staticLibName + '_' + PlatformDependent.normalizedArch();
         ClassLoader cl = PlatformDependent.getClassLoader(Native.class);
         try {

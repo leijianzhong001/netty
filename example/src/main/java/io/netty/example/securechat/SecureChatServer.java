@@ -35,6 +35,9 @@ public final class SecureChatServer {
 
     public static void main(String[] args) throws Exception {
         SelfSignedCertificate ssc = new SelfSignedCertificate();
+        // 服务端打印证书和私钥
+        System.out.println(ssc.certificate());
+        System.out.println(ssc.privateKey());
         SslContext sslCtx = SslContextBuilder.forServer(ssc.certificate(), ssc.privateKey())
             .build();
 

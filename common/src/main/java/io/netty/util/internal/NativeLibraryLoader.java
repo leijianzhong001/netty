@@ -158,6 +158,7 @@ public final class NativeLibraryLoader {
         List<Throwable> suppressed = new ArrayList<Throwable>();
         try {
             // first try to load from java.library.path
+            // 1、首先尝试从java.library.path加载， 所以是否绝对路径参数为false
             loadLibrary(loader, name, false);
             return;
         } catch (Throwable ex) {
@@ -165,6 +166,7 @@ public final class NativeLibraryLoader {
         }
 
         String libname = System.mapLibraryName(name);
+        // 2、如果在java.library.path中没有找到，则尝试从META-INF/native/加载
         String path = NATIVE_RESOURCE_HOME + libname;
 
         InputStream in = null;
@@ -173,6 +175,7 @@ public final class NativeLibraryLoader {
         URL url = getResource(path, loader);
         try {
             if (url == null) {
+                // 3、如果依旧没有找到，则判断是否是mac osx系统，如果是，则尝试加载libxxx.dynlib，否则抛出异常
                 if (PlatformDependent.isOsx()) {
                     String fileName = path.endsWith(".jnilib") ? NATIVE_RESOURCE_HOME + "lib" + name + ".dynlib" :
                             NATIVE_RESOURCE_HOME + "lib" + name + ".jnilib";
@@ -183,16 +186,22 @@ public final class NativeLibraryLoader {
                         throw fnf;
                     }
                 } else {
+                    // 4、如果linux系统，则不再查找，抛出异常
                     FileNotFoundException fnf = new FileNotFoundException(path);
                     ThrowableUtil.addSuppressedAndClear(fnf, suppressed);
                     throw fnf;
                 }
             }
 
+            // libname = libnetty_transport_native_epoll_x86_64.so
             int index = libname.lastIndexOf('.');
+            // prefix的值为libname中最后一个'.'之前的部分, 即libnetty_transport_native_epoll_x86_64
             String prefix = libname.substring(0, index);
+            // suffix的值为libname中最后一个'.'之后的部分, 即.so
             String suffix = libname.substring(index);
 
+            // 3、如果在META-INF/native/中找到，则将其拷贝到临时文件夹下，然后加载。实际上下面会创建一个同名临时文件，然后将源文件的内容写入到临时文件中
+            // WORKDIR目录由系统属性 io.netty.native.workdir 指定, 如果没有指定，则使用系统临时目录
             tmpFile = PlatformDependent.createTempFile(prefix, suffix, WORKDIR);
             in = url.openStream();
             out = new FileOutputStream(tmpFile);
@@ -215,9 +224,11 @@ public final class NativeLibraryLoader {
             closeQuietly(out);
             out = null;
 
+            // 4、使用绝对路径加载
             loadLibrary(loader, tmpFile.getPath(), true);
         } catch (UnsatisfiedLinkError e) {
             try {
+                // 如果加载失败，则可能是因为没有执行权限，这里会打印一些提示信息
                 if (tmpFile != null && tmpFile.isFile() && tmpFile.canRead() &&
                     !NoexecVolumeDetector.canExecuteExecutable(tmpFile)) {
                     // Pass "io.netty.native.workdir" as an argument to allow shading tools to see
@@ -247,6 +258,7 @@ public final class NativeLibraryLoader {
             // We delete the file immediately to free up resources as soon as possible,
             // and if this fails fallback to deleting on JVM exit.
             if (tmpFile != null && (!DELETE_NATIVE_LIB_AFTER_LOADING || !tmpFile.delete())) {
+                // 6、如果加载成功，最后还会将临时文件删掉。如果删除失败，则在JVM退出时删除
                 tmpFile.deleteOnExit();
             }
         }
@@ -385,6 +397,7 @@ public final class NativeLibraryLoader {
             try {
                 // Make sure the helper belongs to the target ClassLoader.
                 final Class<?> newHelper = tryToLoadClass(loader, NativeLibraryUtil.class);
+                // NativeLibraryUtil.loadLibrary 加载本地库
                 loadLibraryByHelper(newHelper, name, absolute);
                 logger.debug("Successfully loaded the library {}", name);
                 return;
@@ -425,6 +438,7 @@ public final class NativeLibraryLoader {
                 try {
                     // Invoke the helper to load the native library, if succeed, then the native
                     // library belong to the specified ClassLoader.
+                    // 调用helper加载native库，如果成功，则native库属于指定的类加载器。
                     Method method = helper.getMethod("loadLibrary", String.class, boolean.class);
                     method.setAccessible(true);
                     return method.invoke(null, name, absolute);

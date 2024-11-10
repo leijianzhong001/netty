@@ -33,6 +33,7 @@ final class NativeLibraryUtil {
      */
     public static void loadLibrary(String libName, boolean absolute) {
         if (absolute) {
+            // 最后我们可以看到，加载本地库是通过调用System.load方法来实现的，这个方法是一个native方法，它会调用JNI的LoadLibrary方法来加载本地库。
             System.load(libName);
         } else {
             System.loadLibrary(libName);

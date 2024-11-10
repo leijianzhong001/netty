@@ -640,6 +640,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
             return promise;
         }
 
+        // 找下一个能处理connect事件的OutboundHandler，其实就是 HeadContext
         final AbstractChannelHandlerContext next = findContextOutbound(MASK_CONNECT);
         EventExecutor executor = next.executor();
         if (executor.inEventLoop()) {
@@ -657,6 +658,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
 
     private void invokeConnect(SocketAddress remoteAddress, SocketAddress localAddress, ChannelPromise promise) {
         if (invokeHandler()) {
+            // invokeHandler校验的是这个handler是否被添加到pipeline中，一般是添加了的。
             try {
                 // DON'T CHANGE
                 // Duplex handlers implements both out/in interfaces causing a scalability issue
@@ -664,6 +666,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
                 final ChannelHandler handler = handler();
                 final DefaultChannelPipeline.HeadContext headContext = pipeline.head;
                 if (handler == headContext) {
+                    // 1、连接的最终实现就在HeadContext中的connect方法中，实际上是调用了channel().unsafe().connect(remoteAddress, localAddress, promise)
                     headContext.connect(this, remoteAddress, localAddress, promise);
                 } else if (handler instanceof ChannelDuplexHandler) {
                     ((ChannelDuplexHandler) handler).connect(this, remoteAddress, localAddress, promise);

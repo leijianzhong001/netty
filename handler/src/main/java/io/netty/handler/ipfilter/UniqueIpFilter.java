@@ -37,6 +37,7 @@ public class UniqueIpFilter extends AbstractRemoteAddressFilter<InetSocketAddres
 
     @Override
     protected boolean accept(ChannelHandlerContext ctx, InetSocketAddress remoteAddress) throws Exception {
+        // 唯一ip地址过滤的实现是，一个ip地址只允许有一个连接，如果有多个连接，后面的连接会被拒绝
         final InetAddress remoteIp = remoteAddress.getAddress();
         if (!connected.add(remoteIp)) {
             return false;
@@ -44,6 +45,7 @@ public class UniqueIpFilter extends AbstractRemoteAddressFilter<InetSocketAddres
             ctx.channel().closeFuture().addListener(new ChannelFutureListener() {
                 @Override
                 public void operationComplete(ChannelFuture future) throws Exception {
+                    // 注册一个监听器，当连接关闭时，将ip地址从集合中移除，一遍该地址可以重新连接都当前服务
                     connected.remove(remoteIp);
                 }
             });

@@ -105,7 +105,13 @@ public final class ChannelOutboundBuffer {
             AtomicIntegerFieldUpdater.newUpdater(ChannelOutboundBuffer.class, "unwritable");
 
     /**
-     * 标识当前channel是否能够写入数据，当待发送的数据超过高水位线时，通过设置unwritable将channel设置为不可写
+     * 标识当前channel是否能够写入数据，当待发送的数据超过高水位线时，通过设置unwritable将channel设置为不可写。
+     * unwritable是一个整形，通过标记该整形值的不同bit位，来标识不同状态下的可写状态。
+     * 0 0 0 0 0 1 0 0 0
+     *               ^-- 使用低2位来标识ChannelTrafficShapingHandler是否可写，0标识不可写，1标识可写
+     *             ^-- 使用低3位来GlobalTrafficShapingHandler的可写状态，0标识不可写，1标识可写
+     *           ^-- 使用低4位来标识GlobalChannelTrafficShapingHandler的可写状态，0标识不可写，1标识可写
+     * 设计这么复杂是因为设置为可写或不可写时，通常会触发事件，此时需要区分不同的状态。
      */
     @SuppressWarnings("UnusedDeclaration")
     private volatile int unwritable;
@@ -193,7 +199,7 @@ public final class ChannelOutboundBuffer {
         }
         // 递增待发送数据大小
         long newWriteBufferSize = TOTAL_PENDING_SIZE_UPDATER.addAndGet(this, size);
-        // 判断待发送数据的大小是否超过了高水位线
+        // 判断待发送数据的大小是否超过了高水位线，默认高水位线为64k
         if (newWriteBufferSize > channel.config().getWriteBufferHighWaterMark()) {
             // 如果超过了高水位线，将Channel设置为不可写
             setUnwritable(invokeLater);
@@ -619,8 +625,10 @@ public final class ChannelOutboundBuffer {
 
     private static int writabilityMask(int index) {
         if (index < 1 || index > 31) {
+            // unwriteable 是整形，所以不能超过32位
             throw new IllegalArgumentException("index: " + index + " (expected: 1~31)");
         }
+        // 左移一位相当于*2
         return 1 << index;
     }
 
