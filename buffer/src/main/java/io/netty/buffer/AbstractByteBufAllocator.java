@@ -58,6 +58,7 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
         ResourceLeakTracker<ByteBuf> leak;
         switch (ResourceLeakDetector.getLevel()) {
             case SIMPLE:
+                // 在创建 SimpleLeakAwareByteBuf 的时候，顺便进行一次内存泄漏检测
                 leak = AbstractByteBuf.leakDetector.track(buf);
                 if (leak != null) {
                     buf = new SimpleLeakAwareByteBuf(buf, leak);
@@ -67,6 +68,7 @@ public abstract class AbstractByteBufAllocator implements ByteBufAllocator {
             case PARANOID:
                 leak = AbstractByteBuf.leakDetector.track(buf);
                 if (leak != null) {
+                    // 在创建 AdvancedLeakAwareByteBuf 的时候，顺便进行一次内存泄漏检测
                     buf = new AdvancedLeakAwareByteBuf(buf, leak);
                 }
                 break;

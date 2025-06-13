@@ -70,9 +70,10 @@ public class Server {
         System.out.println("server is ready...");
 
         try {
-            // 绑定一个端口并进行同步，生成了一个 ChannelFuture 对象
+            // 绑定一个端口并进行等待，生成了一个 ChannelFuture 对象
             // 启动服务器并绑定端口
             // 这里返回的这个 ChannelFuture实际上是一个 DefaultChannelPromise， 它会在 NioServerSocketChannel 被成功绑定到端口上之后被设置为成功
+            // 这里的这个sync会在这个 绑定操作完成后，即 DefaultChannelPromise 被设置为成功之后返回，否则会一直阻塞，但是一般绑定操作都很快。
             ChannelFuture cf = bootstrap.bind(6668).sync();
             cf.addListener(new ChannelFutureListener() {
                 @Override
@@ -86,9 +87,14 @@ public class Server {
             });
             // 主线程阻塞在对closeFuture的同步操作中
             // 这里的closeFuture也是一个 DefaultChannelPromise 对象，其sync()方法最终其实调用的是Object.wait()方法。
+            // 理论上，其实不需要在这里sync等待，因为 ServerBootstrap 在运行起来之后，EventLoopGroup 中的线程会一直运行，并且也不是守护线程，所以不会因为主线程退出而退出。
+            // 但是因为我们在finally中指定关闭了EventLoopGroup，所以这里需要等待，否则EventLoopGroup被关闭，就会导致服务端退出。
             cf.channel().closeFuture().sync();
         } catch (InterruptedException e) {
             // 发生异常时关闭线程池
+            bossGroup.shutdownGracefully();
+            workerGroup.shutdownGracefully();
+        } finally {
             bossGroup.shutdownGracefully();
             workerGroup.shutdownGracefully();
         }
