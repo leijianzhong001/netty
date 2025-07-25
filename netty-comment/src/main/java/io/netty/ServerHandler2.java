@@ -1,5 +1,7 @@
 package io.netty;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.SimpleChannelInboundHandler;
@@ -16,5 +18,9 @@ public class ServerHandler2 extends SimpleChannelInboundHandler<String> {
         } else {
             logger.warn("channel is not active or writable, drop write message: {}", msg);
         }
+
+        PooledByteBufAllocator pooledByteBufAllocator = new PooledByteBufAllocator(false);
+        ByteBuf byteBuf1 = pooledByteBufAllocator.heapBuffer();
+        ctx.writeAndFlush(byteBuf1);
     }
 }

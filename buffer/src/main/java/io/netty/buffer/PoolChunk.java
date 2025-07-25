@@ -175,12 +175,19 @@ final class PoolChunk<T> implements PoolChunkMetric {
      * Netty 使用 LongLongHashMap 存储某个 run 的第一个runOffset和handler的映射关系、最后一个runOffset偏移量和handler的映射关系。
      * 至于为什么这么存储，这是为了在向前、向后合并的过程中能通过 pageOffset 偏移量获取句柄值，进而判断是否可以进行向前合并操作。具体通过源码再详细说明。
      *
+     * key是offset, value是handle
+     *
      */
     private final LongLongHashMap runsAvailMap;
 
     /**
      * manage all avail runs
-     * 一个 PriorityQueue 构成的数组, 每个 PriorityQueue 管理相同大小的run
+     * runsAvail 是一个 IntPriorityQueue 构成的数组, 每个 IntPriorityQueue 保存了相同大小的run的handle, run的大小使用page数量表示
+     * runsAvail 的结构：
+     *     runsAvail[0] -> 0-256个page大小的run
+     *     runsAvail[1] -> 256-512个page大小的run
+     *     runsAvail[2] -> 512-1024个page大小的run
+     *     runsAvail[3] -> ...
      *
      * runsAvail中Run是按runOffset升序排序的，因此我们总是从较小的偏移量开始分配run。
      *
@@ -189,6 +196,7 @@ final class PoolChunk<T> implements PoolChunkMetric {
      * IntPriorityQueue 属于小顶堆(这意味着其中的run是升序排序)，存储 int （非 Integer）型的句柄值，通过 IntPriorityQueue#poll() 方法每次都能获取小顶堆内部的最小的 handle 值。
      * 这表示我们每次申请内存都是从最低位地址开始分配。而在 PoolChunk 内部有一个 IntPriorityQueue[] 数组，所有存储在 IntPriorityQueue 对象的 handle 都表示一个可用的 run，
      * handle 它的默认长度为 40，为什么是 40 会在源码讲解时解释。
+     *
      */
     private final IntPriorityQueue[] runsAvail;
 
@@ -582,6 +590,7 @@ final class PoolChunk<T> implements PoolChunkMetric {
     private long allocateSubpage(int sizeIdx, PoolSubpage<T> head) {
         //allocate a new run
         // #2 获取拆分规格值和pageSize的最小公倍数, 也即是本次要从chunk中申请的内存大小，拆分规格值即用户请求的内存大小靠拢到标准规格的大小
+        // 例如，如果申请32B大小的内存，pagesize大小为8192B, 则这里的runSize就是 8192
         int runSize = calculateRunSize(sizeIdx);
         //runSize must be multiples of pageSize
         // #3 申请若干个page，申请到的page数量是拆分规格值和pageSize的最小公倍数。比如申请了30kb, pagesize是4kb, 则这里实际会申请的内存大小是60kb, 也即是15个page
@@ -596,14 +605,18 @@ final class PoolChunk<T> implements PoolChunkMetric {
         // 拆分规格值, 即用户请求的内存大小靠拢到标准规格的大小
         int elemSize = arena.sizeIdx2size(sizeIdx);
 
-        // #4 创建一个新的PoolSubpage对象
+        // #4 创建一个新的PoolSubpage对象。注意，并不会为 PoolSubpage 直接分配内存，而是从 chunk 中的指定偏移量开始，为 PoolSubpage 分配指定大小的一块区域。
+        // 具体来说，就是通过这里的 chunk对象（this），runOffset, runSize来确定为该PoolSubpage对象分配内存区域。
+        // 一个 PoolSubpage 对象对应一个内存区域，这个内存区域大小是 runSize, runOffset是该内存区域在 chunk 中的偏移量
         PoolSubpage<T> subpage = new PoolSubpage<T>(head, this, pageShifts, runOffset,
                 runSize(pageShifts, runHandle), elemSize);
 
         // #5 由PoolChunk记录新创建的PoolSubpage，数组索引值是首页的偏移量，这个值是唯一的，也是记录在句柄值中
         // 因此，在归还内存时会通过句柄值找到对应的PoolSubpge对象
         subpages[runOffset] = subpage;
-        // #6 委托PoolSubpage分配内存
+        // #6 委托 PoolSubpage 分配内存，因为实际上请求的内存大小可能远远小于一个page，所以这里通过 subpage.allocate() 来实现在某个page中分配
+        // 一个 PoolSubpage 只会管理一种固定规格的内存块，例如32B的 PoolSubpage，其内部结构可以看作是：
+        // |32B|32B|32B|32B|32B|32B|32B|...| 这样的，每次从该 PoolSubpage 分配时，会固定的分配出一个32B的内存块
         return subpage.allocate();
     }
 

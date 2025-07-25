@@ -282,12 +282,16 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
         }
         long nanoTime = getCurrentTimeNanos();
         for (;;) {
+            // 从 scheduledTaskQueue 中取出一个定时任务，未到执行时间的定时任务会返回空
             Runnable scheduledTask = pollScheduledTask(nanoTime);
             if (scheduledTask == null) {
+                // 这里之所以立即返回，是因为一旦发现了未到执行时间的定时任务，则说明剩下的任务都是未到执行时间的。原因scheduledTaskQueue是一个 DefaultPriorityQueue ，按照执行时间定义优先级。
                 return true;
             }
+            // 到执行时间的任务添加到 taskQueue 中，使其可以立即执行
             if (!taskQueue.offer(scheduledTask)) {
                 // No space left in the task queue add it back to the scheduledTaskQueue so we pick it up again.
+                // 任务队列中没有剩余空间了，将其添加回scheduledTaskQueue，因此我们再次将其取出。
                 scheduledTaskQueue.add((ScheduledFutureTask<?>) scheduledTask);
                 return false;
             }
@@ -350,6 +354,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
         if (isShutdown()) {
             reject();
         }
+        // MpscChunkedArrayQueue 如果指定了最大容量，则在容量已满的情况下，会返回false，但不会阻塞
         return taskQueue.offer(task);
     }
 
@@ -371,6 +376,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
         boolean ranAtLeastOne = false;
 
         do {
+            // 获取所有到执行时间的定时任务
             fetchedAll = fetchFromScheduledTaskQueue();
             if (runAllTasksFrom(taskQueue)) {
                 ranAtLeastOne = true;
@@ -457,13 +463,16 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
      * the tasks in the task queue and returns if it ran longer than {@code timeoutNanos}.
      */
     protected boolean runAllTasks(long timeoutNanos) {
+        // 获取所有到执行时间的定时任务,然后将其添加到异步任务队列 taskQueue 中。taskQueue中的任务可以看做是需要立即执行的任务。
         fetchFromScheduledTaskQueue();
+        // 取出一个异步任务
         Runnable task = pollTask();
         if (task == null) {
             afterRunningAllTasks();
             return false;
         }
 
+        // 异步任务执行截止时间，一旦到达截止时间，则不在处理异步任务
         final long deadline = timeoutNanos > 0 ? getCurrentTimeNanos() + timeoutNanos : 0;
         long runTasks = 0;
         long lastExecutionTime;
@@ -473,10 +482,12 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
             runTasks ++;
 
             // Check timeout every 64 tasks because nanoTime() is relatively expensive.
+            // 每64个任务检查一次超时，因为nanoTime()的开销相对较大
             // XXX: Hard-coded value - will make it configurable if it is really a problem.
             if ((runTasks & 0x3F) == 0) {
                 lastExecutionTime = getCurrentTimeNanos();
                 if (lastExecutionTime >= deadline) {
+                    // 到执行时间了，停止处理异步任务
                     break;
                 }
             }
@@ -849,7 +860,7 @@ public abstract class SingleThreadEventExecutor extends AbstractScheduledEventEx
         // 2、不论如何，先把指定的任务添加到任务队列中。
         addTask(task);
         if (!inEventLoop) {
-            // 3、如果inEventLoop为false，则可能是其他线程在执行该方法，或者是服务器第一次启动，EventLoop的内置线程还未启动，此时尝试去启动EventLoop内置的线程
+            // 3、todo 如果inEventLoop为false，则可能是其他线程在执行该方法，或者是服务器第一次启动，EventLoop的内置线程还未启动，此时尝试去启动EventLoop内置的线程
             startThread();
             if (isShutdown()) {
                 boolean reject = false;

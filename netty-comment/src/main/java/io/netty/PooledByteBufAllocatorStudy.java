@@ -3,6 +3,7 @@ package io.netty;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.PooledByteBufAllocator;
+import io.netty.util.ReferenceCountUtil;
 
 /**
  * 这个案例用来学习池化的ByteBuf分配原理
@@ -12,9 +13,9 @@ public class PooledByteBufAllocatorStudy {
         ByteBufAllocator alloc = PooledByteBufAllocator.DEFAULT;
 
         //tiny规格内存分配 会变成大于等于16的整数倍的数：这里254 会规格化为256
-        ByteBuf byteBuf = alloc.directBuffer(254 * 1024);
+        ByteBuf byteBuf = alloc.directBuffer(8);
 
-        //读写bytebuf
+        //读写 bytebuf
         byteBuf.writeInt(126);
         System.out.println(byteBuf.readInt());
 

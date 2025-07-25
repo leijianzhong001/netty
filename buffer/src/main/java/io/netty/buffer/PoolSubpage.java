@@ -120,7 +120,7 @@ final class PoolSubpage<T> implements PoolSubpageMetric {
         nextAvail = 0;
 
         lock = null;
-        // 注意：这里的这个head是arena.smallSubpagePools中的elemSize这个规格的头结点，所以这里实际上时将当前新建的PoolSubpage加入到了PoolArena的管理中
+        // 注意：这里的这个 head 是 arena.smallSubpagePools中的elemSize这个规格的头结点，所以这里实际上时将当前新建的 PoolSubpage 加入到了 PoolArena 的管理中
         addToPool(head);
     }
 

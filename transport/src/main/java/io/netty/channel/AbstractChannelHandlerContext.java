@@ -988,6 +988,8 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
         // 引用计数器用的，用来检测内存泄漏
         final Object m = pipeline.touch(msg, next);
         EventExecutor executor = next.executor();
+        // 如果当前线程和当前 channel 的 executor 一致（实际上，每个channel都有自己独立的pipeline和handler，所以这里虽然是handler.executor,但实际上取的就是handler对应的channel的executor），
+        // 说明当前写操作是直接由EventLoop线程发起的（一般来说就是直接在入站的handler中执行了ctx.writeAndFlush()）,没有并发安全问题, 因为是在一个线程之内，直接执行写出操作。
         if (executor.inEventLoop()) {
             // 2、从当前handler开始，往回找第一个OutboundHandler，然后调用其invokeWrite方法
             if (flush) {
@@ -997,6 +999,9 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
                 next.invokeWrite(m, promise);
             }
         } else {
+            // 非EventLoop线程的任务，为了并发安全，将其封装为一个 WriteTask ，提交到 taskQueue 中
+            // 一般来说，就是使用了其他的异步线程持有channel的引用，然后执行 channel.wirteAndFlush。最终，还是使用当前channel的executor来执行提交的WriteTask, 进行实际的写出。
+            // 所以说，并发对一个channel进行写操作是并发安全的
             final WriteTask task = WriteTask.newInstance(next, m, promise, flush);
             if (!safeExecute(executor, task, promise, m, !flush)) {
                 // We failed to submit the WriteTask. We need to cancel it so we decrement the pending bytes
@@ -1284,6 +1289,7 @@ abstract class AbstractChannelHandlerContext implements ChannelHandlerContext, R
         @Override
         public void run() {
             try {
+                // 执行实际的写任务
                 decrementPendingOutboundBytes();
                 if (size >= 0) {
                     ctx.invokeWrite(msg, promise);

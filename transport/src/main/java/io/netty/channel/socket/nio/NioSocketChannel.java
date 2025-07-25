@@ -428,6 +428,7 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                     int attemptedBytes = buffer.remaining();
                     // 1、注意这里，调用java nio原生的SocketChannel.write(ByteBuffer)方法，将数据写出
                     final int localWrittenBytes = ch.write(buffer);
+                    // 一旦发现write字节数为0 ，说明TCP缓冲区己满，此时继续发送没有意义，注册SelectionKey.OP_WRITE 井退出循环,在下一个SelectionKey轮询周期继续发送
                     if (localWrittenBytes <= 0) {
                         incompleteWrite(true);
                         return;
@@ -443,8 +444,9 @@ public class NioSocketChannel extends AbstractNioByteChannel implements io.netty
                     // to check if the total size of all the buffers is non-zero.
                     // We limit the max amount to int above so cast is safe
                     long attemptedBytes = in.nioBufferSize();
-                    // 1、注意这里，调用java nio原生的SocketChannel.write(ByteBuffer[])方法，将数据写出，这里是批量写出
+                    // 1、注意这里，调用java nio原生的SocketChannel.write(ByteBuffer[])方法，将数据写出，这里是批量写出!!!
                     final long localWrittenBytes = ch.write(nioBuffers, 0, nioBufferCnt);
+                    // 一旦发现write字节数为0 ，说明TCP缓冲区己满，此时继续发送没有意义，注册SelectionKey.OP_WRITE 井退出循环,在下一个SelectionKey轮询周期继续发送
                     if (localWrittenBytes <= 0) {
                         // 这里如果返回0，则说明当前channel已经写满了，不能再写了，
                         // 此时给当前channel的SelectionKey上注册一个OP_WRITE事件，等待下次能写的时候再来写

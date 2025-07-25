@@ -220,6 +220,7 @@ public final class ChannelOutboundBuffer {
         }
 
         long newWriteBufferSize = TOTAL_PENDING_SIZE_UPDATER.addAndGet(this, -size);
+        // 开始低于低水位线，则将channel状态置为可写
         if (notifyWritability && newWriteBufferSize < channel.config().getWriteBufferLowWaterMark()) {
             setWritable(invokeLater);
         }
@@ -246,7 +247,7 @@ public final class ChannelOutboundBuffer {
         if (entry == null) {
             return null;
         }
-
+        // 实际的消息是entry.msg
         return entry.msg;
     }
 
@@ -306,6 +307,7 @@ public final class ChannelOutboundBuffer {
 
         if (!e.cancelled) {
             // only release message, notify and decrement if it was not canceled before.
+            // 释放消息对应的ByteBuf, 防止内存泄漏。
             ReferenceCountUtil.safeRelease(msg);
             safeSuccess(promise);
             decrementPendingOutboundBytes(size, false, true);
@@ -651,6 +653,7 @@ public final class ChannelOutboundBuffer {
             final int newValue = oldValue | 1;
             if (UNWRITABLE_UPDATER.compareAndSet(this, oldValue, newValue)) {
                 if (oldValue == 0) {
+                    // 触发监时间
                     fireChannelWritabilityChanged(invokeLater);
                 }
                 break;

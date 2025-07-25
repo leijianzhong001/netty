@@ -41,6 +41,7 @@ public abstract class AbstractReferenceCountedByteBuf extends AbstractByteBuf {
         }
     };
 
+    // refCnt 实际值为偶数，采用位移操作提高效率
     // Value might not equal "real" reference count, all access should be via the updater
     @SuppressWarnings({"unused", "FieldMayBeFinal"})
     private volatile int refCnt;

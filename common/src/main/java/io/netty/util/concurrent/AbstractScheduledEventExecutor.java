@@ -150,11 +150,14 @@ public abstract class AbstractScheduledEventExecutor extends AbstractEventExecut
     /**
      * Return the {@link Runnable} which is ready to be executed with the given {@code nanoTime}.
      * You should use {@link #getCurrentTimeNanos()} to retrieve the correct {@code nanoTime}.
+     *
+     * 返回{@link Runnable}，它已准备好与给定的{@code nanoTime}一起执行。您应该使用{@link #getCurrentTimeNanos()}来检索正确的{@code nanoTime}。
      */
     protected final Runnable pollScheduledTask(long nanoTime) {
         assert inEventLoop();
 
         ScheduledFutureTask<?> scheduledTask = peekScheduledTask();
+        // 判断任务是否已到执行时间，如果未到执行时间，返回空。如果已经到执行时间，则从队列中删除该任务并返回
         if (scheduledTask == null || scheduledTask.deadlineNanos() - nanoTime > 0) {
             return null;
         }

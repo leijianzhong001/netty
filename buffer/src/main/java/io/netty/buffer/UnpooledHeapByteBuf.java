@@ -116,6 +116,7 @@ public class UnpooledHeapByteBuf extends AbstractReferenceCountedByteBuf {
 
     @Override
     public ByteBuf capacity(int newCapacity) {
+        // 首先对容量的合法性进行校验，如果大于容量上限或者小于0 ，则抛出 IllegalArgumentException 异常。
         checkNewCapacity(newCapacity);
         byte[] oldArray = array;
         int oldCapacity = oldArray.length;
@@ -124,15 +125,21 @@ public class UnpooledHeapByteBuf extends AbstractReferenceCountedByteBuf {
         }
 
         int bytesToCopy;
+        // 判断新的容量值是否大于当前的缓冲区容量，如果大于则需要进行动态扩展
         if (newCapacity > oldCapacity) {
             bytesToCopy = oldCapacity;
         } else {
+            //
             trimIndicesToCapacity(newCapacity);
             bytesToCopy = newCapacity;
         }
+        // 通过byte[] newArray = new byte[newCapacity］创建新的缓冲区字节数 组，
         byte[] newArray = allocateArray(newCapacity);
+        // 然后通过 System.arraycopy 进行内存复制，将旧的字节数组复制到新创建的字节数组，
         System.arraycopy(oldArray, 0, newArray, 0, bytesToCopy);
+        // 最后调用 setArray 替换旧的字节数
         setArray(newArray);
+        // 需要指出的是，当动态扩容完成后， 需要将原来的视图tmpNioBuf 设置为空。
         freeArray(oldArray);
         return this;
     }

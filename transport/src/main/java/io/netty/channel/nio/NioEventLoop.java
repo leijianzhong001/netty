@@ -141,10 +141,12 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                  EventLoopTaskQueueFactory taskQueueFactory, EventLoopTaskQueueFactory tailTaskQueueFactory) {
         super(parent, executor, false, newTaskQueue(taskQueueFactory), newTaskQueue(tailTaskQueueFactory),
                 rejectedExecutionHandler);
+        // SelectorProvider,jdk提供的类，用来创建 selector
         this.provider = ObjectUtil.checkNotNull(selectorProvider, "selectorProvider");
         this.selectStrategy = ObjectUtil.checkNotNull(strategy, "selectStrategy");
         // 这里创建了EventLoop中的Selector对象。
         final SelectorTuple selectorTuple = openSelector();
+        // Selector对象
         this.selector = selectorTuple.selector;
         this.unwrappedSelector = selectorTuple.unwrappedSelector;
     }
@@ -573,8 +575,9 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                         processSelectedKeys();
                     } finally {
                         // Ensure we always run tasks.
+                        // ioTime 的值是本轮IO操作开始到结束的耗时
                         final long ioTime = System.nanoTime() - ioStartTime;
-                        // 3、串行运行任务队列中的任务
+                        // 3、串行运行任务队列中的任务。ioRatio 默认为 50，这样意味异步任务将花费IO操作耗时的50%的时间来运行。
                         ranTasks = runAllTasks(ioTime * (100 - ioRatio) / ioRatio);
                     }
                 } else {
@@ -785,7 +788,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
         }
 
         try {
-            // 1、获得当前channel中就绪的事件
+            // 1、获得当前 channel 中就绪的事件
             int readyOps = k.readyOps();
             // We first need to call finishConnect() before try to trigger a read(...) or write(...) as otherwise
             // the NIO JDK channel implementation may throw a NotYetConnectedException.
@@ -814,7 +817,7 @@ public final class NioEventLoop extends SingleThreadEventLoop {
                 /**
                  * 3、这个分支用来处理读就绪、或者创建连接事件。但是根据事件有不同的实现。
                  *      3.1、对于创建连接事件，即OP_ACCEPT->16，这里的unsafe.read实现是 AbstractNioMessageChannel.NioMessageUnsafe#read()
-                 *      3.2、对与读就绪时间，即OP_READ->1， 这里的unsafe.read实现是    AbstractNioByteChannel.NioByteUnsafe#read()
+                 *      3.2、对与读就绪事件，即OP_READ->1， 这里的unsafe.read实现是 AbstractNioByteChannel.NioByteUnsafe#read()
                  *      3.3、另外，如果客户端关闭了连接，也会触发OP_READ事件，这个时候会调用unsafe.read()，然后在read()方法中判断是否读到-1，如果读到-1，就会调用unsafe.close()关闭连接。
                  */
                 unsafe.read();

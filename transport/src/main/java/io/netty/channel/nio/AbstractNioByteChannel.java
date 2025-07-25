@@ -164,6 +164,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                         // 最后读到的数据小于0，说明读取到了EOF，释放ByteBuf
                         byteBuf.release();
                         byteBuf = null;
+                        // 如果从套接字读到EOF（-1），则关闭channel，一般来说，只有Socket被关闭了连接才会读到-1
                         close = allocHandle.lastBytesRead() < 0;
                         if (close) {
                             // There is nothing left to read as we received an EOF.
@@ -292,6 +293,7 @@ public abstract class AbstractNioByteChannel extends AbstractNioChannel {
                 return msg;
             }
 
+            // 如果此byteBuf不是直接内存，则将其转换为直接内存
             return newDirectBuffer(buf);
         }
 

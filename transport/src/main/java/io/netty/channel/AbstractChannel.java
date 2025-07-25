@@ -922,6 +922,13 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
 
             int size;
             try {
+                /*
+                 * 判断如果是非直接内存的ByteBuf，将其转换为直接内存的ByteBuf。
+                 * 1、当使用 Heap Buffer 写入网络时，操作系统底层 I/O 操作无法直接访问 JVM 堆内存，必须先将数据复制到一个临时的 Direct Buffer 中，再进行系统调用（如 write()）。
+                 *  通过 newDirectBuffer(buf) 提前将 Heap Buffer 转换为 Direct Buffer，Netty 避免了这一额外的内存拷贝步骤，显著提升了写操作的性能，尤其是在高并发、大数据量的场景下
+                 * 2、设计一致性：Netty 的底层 I/O 操作（如 doWriteBytes(ByteBuf buf)）期望接收 Direct Buffer。通过在 filterOutboundMessage 中统一转换，
+                 *   Netty 确保后续流程（如 doWriteBytes）无需再处理 Heap Buffer 的特殊逻辑。 这种设计使得 doWriteBytes 等方法只需专注于处理 Direct Buffer，无需额外判断和转换，降低了代码复杂度。
+                 */
                 msg = filterOutboundMessage(msg);
                 // 算一下msg的大小
                 size = pipeline.estimatorHandle().size(msg);
@@ -1188,6 +1195,7 @@ public abstract class AbstractChannel extends DefaultAttributeMap implements Cha
     /**
      * Invoked when a new message is added to a {@link ChannelOutboundBuffer} of this {@link AbstractChannel}, so that
      * the {@link Channel} implementation converts the message to another. (e.g. heap buffer -> direct buffer)
+     * 当新消息添加到 {@link AbstractChannel} 的{@link ChannelOutboundBuffer}时此方法被调用，以便{@link Channel}实现将消息转换为另一个消息。（e.g. heap buffer -> direct buffer）
      */
     protected Object filterOutboundMessage(Object msg) throws Exception {
         return msg;

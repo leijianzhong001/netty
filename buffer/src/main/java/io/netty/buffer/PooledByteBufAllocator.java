@@ -330,7 +330,12 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
             throw new IllegalArgumentException("directMemoryCacheAlignment: "
                     + directMemoryCacheAlignment + " (expected: power of two)");
         }
-        // 8192
+        // pageSize -> 8192
+        // PageShifts 是 pageSize 的对数（以2为底） 例如，默认页大小为 8192（8KB）时，pageShifts = 13（因为 $2^{13} = 8192$）
+        // 通过 pageShifts，Netty 使用位运算替代传统数学运算，提升性能：
+        //      计算页索引：offset >> pageShifts → 快速确定偏移量属于哪个 Page。
+        //      计算页内偏移：offset & (pageSize - 1) → 快速获取偏移量在页内的位置。
+        //      对齐检查：确保内存地址或偏移量对齐到页边界。
         int pageShifts = validateAndCalculatePageShifts(pageSize, directMemoryCacheAlignment);
 
         if (nHeapArena > 0) {
@@ -387,6 +392,7 @@ public class PooledByteBufAllocator extends AbstractByteBufAllocator implements 
         }
 
         // Logarithm base 2. At this point we know that pageSize is a power of two.
+        // PageShifts 是页大小的对数（以2为底）
         return Integer.SIZE - 1 - Integer.numberOfLeadingZeros(pageSize);
     }
 

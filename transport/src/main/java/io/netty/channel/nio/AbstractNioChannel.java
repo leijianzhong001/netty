@@ -446,6 +446,14 @@ public abstract class AbstractNioChannel extends AbstractChannel {
      * Returns an off-heap copy of the specified {@link ByteBuf}, and releases the original one.
      * Note that this method does not create an off-heap copy if the allocation / deallocation cost is too high,
      * but just returns the original {@link ByteBuf}..
+     *
+     * 返回指定的{@link ByteBuf}的非堆副本，并释放原始副本。请注意，如果分配释放成本太高，此方法不会创建堆外副本，而只是返回原始的{@link ByteBuf}
+     * 但是为什么这样做呢？
+     *  1、当使用 Heap Buffer 写入网络时，操作系统底层 I/O 操作无法直接访问 JVM 堆内存，必须先将数据复制到一个临时的 Direct Buffer 中，再进行系统调用（如 write()）。
+     *  通过 newDirectBuffer(buf) 提前将 Heap Buffer 转换为 Direct Buffer，Netty 避免了这一额外的内存拷贝步骤，显著提升了写操作的性能，尤其是在高并发、大数据量的场景下
+     *  2、设计一致性：Netty 的底层 I/O 操作（如 doWriteBytes(ByteBuf buf)）期望接收 Direct Buffer。通过在 filterOutboundMessage 中统一转换，
+     *  Netty 确保后续流程（如 doWriteBytes）无需再处理 Heap Buffer 的特殊逻辑。 这种设计使得 doWriteBytes 等方法只需专注于处理 Direct Buffer，无需额外判断和转换，降低了代码复杂度。
+     *
      */
     protected final ByteBuf newDirectBuffer(ByteBuf buf) {
         final int readableBytes = buf.readableBytes();
@@ -458,6 +466,7 @@ public abstract class AbstractNioChannel extends AbstractChannel {
         if (alloc.isDirectBufferPooled()) {
             ByteBuf directBuf = alloc.directBuffer(readableBytes);
             directBuf.writeBytes(buf, buf.readerIndex(), readableBytes);
+            // 释放原始副本
             ReferenceCountUtil.safeRelease(buf);
             return directBuf;
         }

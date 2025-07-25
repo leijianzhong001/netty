@@ -34,14 +34,26 @@ import static java.lang.Math.min;
  */
 public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufAllocator {
 
+    /**
+     * 它分别定义了3 个系统默认值：
+     *      最小缓冲区长度为64 宇节、初始容量为1024 字节、 最大容量为65536 字节。
+     */
     static final int DEFAULT_MINIMUM = 64;
     // Use an initial value that is bigger than the common MTU of 1500
     static final int DEFAULT_INITIAL = 2048;
     static final int DEFAULT_MAXIMUM = 65536;
 
+    /**
+     * 还定义了两个动态调整容量的步进参数：
+     *      扩张的步进索引为4 、收缩的步进索引为1 。
+     */
     private static final int INDEX_INCREMENT = 4;
     private static final int INDEX_DECREMENT = 1;
 
+    /**
+     * 最后，定义了长度的向量表SIZE_TABLE 井初始化， 初始值:
+     *      16,32,48,64,80,96,112,128,144,160,176,192,208,224,240,256,272,288,304,320,336,352,368,384,400,416,432,448,464,480,496
+     */
     // 16,32,48,64,80,96,112,128,144,160,176,192,208,224,240,256,272,288,304,320,336,352,368,384,400,416,432,448,464,480,496
     private static final int[] SIZE_TABLE;
 
@@ -70,6 +82,9 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
     @Deprecated
     public static final AdaptiveRecvByteBufAllocator DEFAULT = new AdaptiveRecvByteBufAllocator();
 
+    /**
+     * 二分查找的方式从向量表中查出size在向量表SIZE_TABLE中的索引
+     */
     private static int getSizeTableIndex(final int size) {
         for (int low = 0, high = SIZE_TABLE.length - 1;;) {
             if (high < low) {
@@ -95,6 +110,10 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
     }
 
     private final class HandleImpl extends MaxMessageHandle {
+        /**
+         * 5 个成员变量 分别是对应:
+         *      向量表的最小索引、最大索引、当前索引、下一次预分配的Buffer大小，以及是否立即执行容量收缩操作
+         */
         private final int minIndex;
         private final int maxIndex;
         private int index;
@@ -143,6 +162,7 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
                 // decreaseNow 连续尝试两次都可以缩小
                 // decreaseNow 第一次进来是false, 所以第一次即时满足减小分配的条件，也不进行，直到第二次进来发现依旧可以减小分配，才实际的进行缩小。
                 if (decreaseNow) {
+                    // 取收缩后的索引和最小索引中的较大者作为新的索引
                     index = max(index - INDEX_DECREMENT, minIndex);
                     // 最终猜测到的Buffer大小
                     nextReceiveBufferSize = SIZE_TABLE[index];
@@ -152,6 +172,7 @@ public class AdaptiveRecvByteBufAllocator extends DefaultMaxMessagesRecvByteBufA
                 }
             // 判断是否实际读取的数据大于等于预估的，如果是，尝试扩容
             } else if (actualReadBytes >= nextReceiveBufferSize) {
+                // 选取“ 当前索引＋扩张步进”和最大索引中的较小作为当前索引值
                 index = min(index + INDEX_INCREMENT, maxIndex);
                 nextReceiveBufferSize = SIZE_TABLE[index];
                 decreaseNow = false;
